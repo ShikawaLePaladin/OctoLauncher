@@ -84,6 +84,15 @@ const parseProgress = (
 	};
 };
 
+let syncChild: ChildProcess | undefined;
+
+// aria2's --stop-with-process is unreliable on Windows; kill the download
+// child explicitly on quit or it keeps running headless
+export const stopSyncing = (): void => {
+	syncChild?.kill();
+	syncChild = undefined;
+};
+
 export const syncClient = (opts: SyncOpts): Promise<void> =>
 	new Promise<void>((resolve, reject) => {
 		let child: ChildProcess | undefined;
@@ -120,6 +129,7 @@ export const syncClient = (opts: SyncOpts): Promise<void> =>
 				];
 				Logger.log(`aria2c ${args.join(' ')}`);
 				child = spawn(bin(), args, { windowsHide: true });
+				syncChild = child;
 
 				const onLine = (buf: Buffer) => {
 					for (const line of buf.toString().split(/\r?\n/)) {
@@ -136,6 +146,7 @@ export const syncClient = (opts: SyncOpts): Promise<void> =>
 
 				child.on('error', reject);
 				child.on('close', code => {
+					if (syncChild === child) syncChild = undefined;
 					if (code === 0) resolve();
 					else reject(new Error(`aria2c exited with code ${code}`));
 				});
@@ -341,6 +352,7 @@ export const torrentDownloadSelection = async (
 		const files = torrent?.info?.files ?? [];
 		if (!files.length) return null;
 		const need: number[] = [];
+		let missing = false;
 		for (let i = 0; i < files.length; i++) {
 			const f = files[i];
 			if (!f.path?.length || typeof f.length !== 'number') return null;
@@ -348,6 +360,7 @@ export const torrentDownloadSelection = async (
 			const dest = path.join(clientDir, ...f.path);
 			const st = await fs.stat(dest).catch(() => null);
 			if (!st) {
+				missing = true;
 				need.push(i + 1);
 				continue;
 			}
@@ -357,6 +370,10 @@ export const torrentDownloadSelection = async (
 				need.push(i + 1);
 			}
 		}
+		// a deleted file poisons the resume state (its pieces are marked
+		// done, so aria2 skips them forever); partial files keep it so an
+		// interrupted download resumes instead of restarting
+		if (missing) await clearTorrentResumeState().catch(() => undefined);
 		return need;
 	} catch (e) {
 		Logger.warn('Torrent selection computation failed', e);

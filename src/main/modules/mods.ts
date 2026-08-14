@@ -58,6 +58,20 @@ const KNOWN_DLLS = new Set(
 const AV_ERROR =
 	'Windows Defender blocked this download. Use "Allow through antivirus" and apply again.';
 
+// pinned dxvk-gplasync v2.7.1-1 x32 d3d9.dll (same build the client ships)
+const DXVK_DLL_SHA256 =
+	'a2cd6841e102f37189527c118ec416fa5071ac4d3120762973d9a0c6c5fd067e';
+
+const fileSha256 = async (p: string): Promise<string | null> => {
+	try {
+		return createHash('sha256')
+			.update(await fs.readFile(p))
+			.digest('hex');
+	} catch {
+		return null;
+	}
+};
+
 const looksLikeAvBlock = (msg: string) =>
 	/windows defender|virus|potentially unwanted/i.test(msg);
 
@@ -278,6 +292,7 @@ class ModsClass extends Observable<ModsStatus> {
 		}
 
 		const missing: string[] = [];
+		let dxvkRepair = false;
 		for (const m of MODS) {
 			// disabled mods: leave dlls.txt and installed state untouched
 			if (m.disabled) continue;
@@ -288,30 +303,41 @@ class ModsClass extends Observable<ModsStatus> {
 			// torrent mode: DLLs ship in the client; a missing file goes to `missing`, not dirty
 			if (isTorrentMode()) {
 				const enabled = state?.enabled ?? DEFAULT_ENABLED_MODS.includes(m.id);
-				// dxvk loads by file presence, not dlls.txt; disabled parks
-				// d3d9.dll as .off, enabled restores it
+				// dxvk loads by file presence and torrent piece spillover can
+				// corrupt it; hash-verify every state: park/restore verified
+				// copies only, delete junk, re-download the pin when needed
 				if (m.id === 'dxvk' && clientDir) {
 					const live = path.join(clientDir, 'd3d9.dll');
 					const off = path.join(clientDir, 'd3d9.dll.off');
-					const liveStat = await fs.stat(live).catch(() => null);
-					if (!enabled && liveStat && liveStat.size === 0) {
-						// 0-byte aria2 stub, never park it over a real copy
-						await fs.remove(live).catch(() => undefined);
-					} else if (!enabled && liveStat) {
-						await fs.remove(off).catch(() => undefined);
-						await fs
-							.move(live, off)
-							.then(() => Logger.info('dxvk disabled: parked d3d9.dll'))
-							.catch(e => Logger.warn('Could not park d3d9.dll', e));
-					} else if (
-						enabled &&
-						!(await fs.pathExists(live)) &&
-						(await fs.pathExists(off))
-					) {
-						await fs
-							.move(off, live)
-							.then(() => Logger.info('dxvk enabled: restored d3d9.dll'))
-							.catch(e => Logger.warn('Could not restore d3d9.dll', e));
+					const liveSha = await fileSha256(live);
+					if (!enabled) {
+						if (
+							liveSha === DXVK_DLL_SHA256 &&
+							!(await fs.pathExists(off))
+						) {
+							await fs
+								.move(live, off)
+								.then(() => Logger.info('dxvk disabled: parked d3d9.dll'))
+								.catch(e => Logger.warn('Could not park d3d9.dll', e));
+						} else if (liveSha !== null) {
+							await fs.remove(live).catch(() => undefined);
+						}
+					} else if (liveSha !== DXVK_DLL_SHA256) {
+						if (liveSha !== null) {
+							Logger.warn('dxvk: d3d9.dll failed verification; replacing');
+							await fs.remove(live).catch(() => undefined);
+						}
+						const offSha = await fileSha256(off);
+						if (offSha === DXVK_DLL_SHA256) {
+							await fs
+								.move(off, live)
+								.then(() => Logger.info('dxvk enabled: restored d3d9.dll'))
+								.catch(e => Logger.warn('Could not restore d3d9.dll', e));
+						} else {
+							if (offSha !== null)
+								await fs.remove(off).catch(() => undefined);
+							dxvkRepair = true;
+						}
 					}
 				}
 				const files = modTargetFiles(m);
@@ -369,6 +395,14 @@ class ModsClass extends Observable<ModsStatus> {
 				enabled: !!state?.enabled,
 				ignoreUpdates: !!state?.ignoreUpdates
 			});
+		}
+
+		if (dxvkRepair) {
+			const dm = getMod('dxvk');
+			if (dm)
+				await this.#install(dm).catch(e =>
+					Logger.warn('dxvk repair download failed', e)
+				);
 		}
 
 		this._value = {

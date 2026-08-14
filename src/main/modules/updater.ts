@@ -456,9 +456,6 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 				}
 			});
 			if (!(await torrentTreeIntact(clientPath, url))) {
-				// stale resume state makes aria2 skip pieces it thinks are
-				// done; drop it so the next attempt starts from the real files
-				await clearTorrentResumeState().catch(() => undefined);
 				await healRealmlist(clientPath).catch(() => undefined);
 				this.status = {
 					state: 'updateAvailable',
@@ -474,15 +471,12 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 			);
 			if (removed.length)
 				Logger.log(`Removed stale archives: ${removed.join(', ')}`);
-			// a clean sync restores d3d9.dll; re-park it if dxvk is off
-			if (Preferences.data.mods?.dxvk?.enabled === false) {
-				const live = path.join(clientPath, 'd3d9.dll');
-				const off = path.join(clientPath, 'd3d9.dll.off');
-				if (await fs.pathExists(live)) {
-					await fs.remove(off).catch(() => undefined);
-					await fs.move(live, off).catch(() => undefined);
-				}
-			}
+			// a sync can recreate d3d9.dll (clean pass, or piece spillover);
+			// drop it while dxvk is off, the mods verify owns park/restore
+			if (Preferences.data.mods?.dxvk?.enabled === false)
+				await fs
+					.remove(path.join(clientPath, 'd3d9.dll'))
+					.catch(() => undefined);
 			await this.#reconcileClientPatch(clientPath);
 			await this.#reconcileRaidVisuals(clientPath);
 			Preferences.data = {

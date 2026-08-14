@@ -9,6 +9,7 @@ import icon from '~build/icon.png?asset';
 import { PreferencesSchema } from '~common/schemas';
 
 import { appRouter } from './api/root';
+import { stopSyncing, stopSeeding } from './modules/aria2';
 import Preferences from './modules/preferences';
 import Updater from './modules/updater';
 import Addons from './modules/addons';
@@ -201,6 +202,8 @@ if (!gotSingleInstanceLock) {
 
 	let settingsFlushed = false;
 	app.on('before-quit', event => {
+		stopSyncing();
+		stopSeeding();
 		if (settingsFlushed) return;
 		settingsFlushed = true;
 		event.preventDefault();
