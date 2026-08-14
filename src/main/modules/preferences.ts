@@ -90,13 +90,13 @@ abstract class Preferences {
 	static #withFreshInstallDefaults(data: PreferencesSchema): PreferencesSchema {
 		if (!this.#freshInstall || Object.keys(data.mods).length) return data;
 
+		// fresh installs seed every mod EXPLICITLY off; a missing row falls
+		// back to enabled, which keeps legacy profiles untouched
 		const mods = { ...data.mods };
 		for (const id of DEFAULT_ENABLED_MODS)
-			mods[id] = { enabled: true, installedFiles: [], ignoreUpdates: false };
+			mods[id] = { enabled: false, installedFiles: [], ignoreUpdates: false };
 
-		Logger.info(
-			`Fresh install: enabling ${DEFAULT_ENABLED_MODS.join(', ')} by default`
-		);
+		Logger.info('Fresh install: all mods start disabled (opt-in)');
 		return { ...data, mods };
 	}
 

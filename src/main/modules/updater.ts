@@ -26,6 +26,8 @@ import {
 	stopSeeding
 } from '~main/modules/aria2';
 
+import { healRealmlist } from '~main/modules/patcher';
+
 import Preferences from './preferences';
 import Observable from './observable';
 
@@ -189,10 +191,14 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 	}
 
 	async refreshSeeding() {
+		// no seeding while dxvk is off: aria2 would recreate the parked
+		// d3d9.dll as a 0-byte stub and break the game's d3d9 import
+		const dxvkOff = Preferences.data.mods?.dxvk?.enabled === false;
 		if (
 			Preferences.data.shareDownloads !== false &&
 			Preferences.data.clientDir &&
-			this.status.state === 'upToDate'
+			this.status.state === 'upToDate' &&
+			!dxvkOff
 		)
 			await startSeeding(Preferences.data.clientDir);
 		else stopSeeding();
@@ -209,6 +215,10 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 			progress: -1,
 			message: 'Checking for updates...'
 		};
+		// an interrupted sync can leave realmlist.wtf as a 0-byte placeholder
+		await healRealmlist(clientPath).catch(e =>
+			Logger.warn('realmlist heal failed', e)
+		);
 		try {
 			const sha = await fetchTorrentSha(url);
 			await this.#reconcileClientPatch(clientPath);
@@ -359,8 +369,10 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 		sha: string,
 		url: string
 	): Promise<boolean> {
-		if (!Preferences.data.syncedTorrentHash) return false;
 		if (!(await torrentTreeIntact(clientPath, url))) return false;
+		// adopt a complete tree even on a fresh profile; empty delta selection
+		// would otherwise fall through to a full re-download
+		await clearTorrentResumeState().catch(() => {});
 		await refreshPristineWow(clientPath);
 		const removed = await pruneStaleArchives(
 			clientPath,
@@ -444,6 +456,10 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 				}
 			});
 			if (!(await torrentTreeIntact(clientPath, url))) {
+				// stale resume state makes aria2 skip pieces it thinks are
+				// done; drop it so the next attempt starts from the real files
+				await clearTorrentResumeState().catch(() => undefined);
+				await healRealmlist(clientPath).catch(() => undefined);
 				this.status = {
 					state: 'updateAvailable',
 					message: 'Download incomplete. Click update to finish.'
@@ -458,6 +474,15 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 			);
 			if (removed.length)
 				Logger.log(`Removed stale archives: ${removed.join(', ')}`);
+			// a clean sync restores d3d9.dll; re-park it if dxvk is off
+			if (Preferences.data.mods?.dxvk?.enabled === false) {
+				const live = path.join(clientPath, 'd3d9.dll');
+				const off = path.join(clientPath, 'd3d9.dll.off');
+				if (await fs.pathExists(live)) {
+					await fs.remove(off).catch(() => undefined);
+					await fs.move(live, off).catch(() => undefined);
+				}
+			}
 			await this.#reconcileClientPatch(clientPath);
 			await this.#reconcileRaidVisuals(clientPath);
 			Preferences.data = {
@@ -468,6 +493,7 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 			await this.refreshSeeding();
 		} catch (e) {
 			Logger.error('Torrent update failed', e);
+			await healRealmlist(clientPath).catch(() => undefined);
 			this.status = {
 				state: 'failed',
 				message: e instanceof Error ? e.message : 'Download failed'

@@ -36,10 +36,10 @@ extraResources:
 win:
   artifactName: ${productName}.${ext}
   target:
-    - portable
     - nsis
 nsis:
-  artifactName: ${productName}_Installer.${ext}
+  # versioned: differential updates need the old blockmap to stay fetchable
+  artifactName: ${productName}_Installer-${version}.${ext}
   uninstallDisplayName: ${productName}
   oneClick: false
   removeDefaultUninstallWelcomePage: true

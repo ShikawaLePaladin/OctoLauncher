@@ -85,6 +85,42 @@ export const patchExecutable = async () => {
 
 		const loc = LOCALES[locale];
 
+		// revert any previous locale patch to the pristine bytes first, so a
+		// language switch (or an adopted pre-patched exe) can re-patch cleanly
+		const TAG_OFFSET = 0x1b2115;
+		const INDEX_OFFSET = 0x253c;
+		const PRISTINE_TAG = [0xa1, 0xa4, 0xa2, 0xc2, 0x00];
+		const PRISTINE_INDEX = [0x33, 0xf6, 0x8b, 0xff, 0x8b, 0x04, 0xb5];
+		if (
+			buffer[TAG_OFFSET] === 0xb8 &&
+			buffer[INDEX_OFFSET] === 0xbe &&
+			buffer[INDEX_OFFSET + 5] === 0xeb
+		) {
+			const prevIndex = buffer[INDEX_OFFSET + 1];
+			const prevCarrier = LOCALE_NAMES[prevIndex] as string | undefined;
+			const prevTag = prevCarrier
+				? Buffer.from([
+						0xb8,
+						...Buffer.from(prevCarrier, 'latin1').reverse()
+				  ])
+				: undefined;
+			if (
+				prevCarrier &&
+				prevTag &&
+				buffer.subarray(TAG_OFFSET, TAG_OFFSET + 5).equals(prevTag)
+			) {
+				Logger.log(
+					`Reverting previous locale patch (index ${prevIndex}) to the clean base`
+				);
+				Buffer.from(PRISTINE_TAG).copy(buffer, TAG_OFFSET);
+				Buffer.from(PRISTINE_INDEX).copy(buffer, INDEX_OFFSET);
+				Buffer.from(prevCarrier, 'latin1').copy(
+					buffer,
+					localeNameOffset(prevIndex)
+				);
+			}
+		}
+
 		const Tweaks = [
 			{
 				key: 'largeAddress',
@@ -110,11 +146,12 @@ export const patchExecutable = async () => {
 				default: false
 			},
 			{
+				// shipped exe carries the enabled bytes; off must write 0x74 back
 				key: 'alwaysAutoLoot',
 				type: 'bytes',
 				tweaks: [
-					[0x0c1ecf, [0x75]],
-					[0x0c2b25, [0x75]]
+					[0x0c1ecf, [0x75], [0x74]],
+					[0x0c2b25, [0x75], [0x74]]
 				]
 			},
 			{ key: 'nameplateRange', type: 'float', offset: 0x40c448 },
@@ -223,7 +260,22 @@ export const patchExecutable = async () => {
 				if (!t.forced && !val) return;
 				buffer.writeUInt16LE(t.value ?? (val as number), t.offset);
 			} else if (t.type === 'bytes') {
-				if (!t.forced && !val) return;
+				if (!t.forced && !val) {
+					// disabled: revert sites carrying the enabled bytes to the
+					// stock bytes when known; unknown bytes stay untouched
+					t.tweaks.forEach(
+						([offset, bytes, expect]: [number, number[], number[]?]) => {
+							if (!expect) return;
+							const current = buffer.subarray(
+								offset,
+								offset + bytes.length
+							);
+							if (current.equals(Buffer.from(bytes)))
+								Buffer.from(expect).copy(buffer, offset);
+						}
+					);
+					return;
+				}
 				t.tweaks.forEach(
 					([offset, bytes, expect]: [number, number[], number[]?]) => {
 						if (expect) {
@@ -309,6 +361,11 @@ const repairResolution = async (
 const applyRealmlist = async (clientDir: string, host: string) => {
 	const body = `set realmlist "${host}"\n`;
 	const write = async (target: string) => {
+		// already correct: leave it alone (the seeder may hold the file open)
+		const current = await fs
+			.readFile(target, { encoding: 'utf-8' })
+			.catch(() => null);
+		if (current === body) return;
 		const tmp = `${target}.tmp`;
 		try {
 			await fs.writeFile(tmp, body);
@@ -330,6 +387,26 @@ const applyRealmlist = async (clientDir: string, host: string) => {
 				Logger.warn(`Could not rewrite ${scoped}: ${String(e)}`);
 			}
 		}
+};
+
+// rewrite realmlist.wtf when missing, empty, or wrong; an interrupted sync
+// can leave a 0-byte placeholder that disconnects direct game launches
+export const healRealmlist = async (clientDir: string) => {
+	const server: keyof typeof Servers = import.meta.env.MAIN_VITE_PTR_REALMLIST
+		? 'ptr'
+		: 'live';
+	const expected = `set realmlist "${Servers[server].realmList}"\n`;
+	const target = path.join(clientDir, 'realmlist.wtf');
+	const current = await fs
+		.readFile(target, { encoding: 'utf-8' })
+		.catch(() => null);
+	if (current === expected) return;
+	Logger.log(
+		`realmlist.wtf ${
+			current === null ? 'missing' : current.trim() ? 'wrong' : 'empty'
+		}; rewriting`
+	);
+	await applyRealmlist(clientDir, Servers[server].realmList);
 };
 
 export const patchConfig = async (forceTweaks = false) => {

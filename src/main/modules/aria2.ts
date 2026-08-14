@@ -269,6 +269,16 @@ const torrentDataDirs = (torrentBytes: Buffer): Set<string> => {
 	);
 };
 
+// archives the old client shipped under names the current one no longer uses;
+// matched by name AND exact size so player mods reusing a name are never touched
+const LEGACY_ARCHIVES: Record<string, number> = {
+	'patch-6.mpq': 451195806,
+	'patch-7.mpq': 175256564,
+	'patch-8.mpq': 484649870,
+	'patch-9.mpq': 506808141,
+	'patch-a.mpq': 241751337
+};
+
 export const pruneStaleArchives = async (
 	clientDir: string,
 	url: string,
@@ -299,6 +309,7 @@ export const pruneStaleArchives = async (
 				continue;
 			}
 			if (!/\.mpq$/i.test(name) || expected.has(lc)) continue;
+			if (LEGACY_ARCHIVES[lc] !== st.size) continue;
 			await fs.remove(full);
 			removed.push(name);
 		}
@@ -308,6 +319,12 @@ export const pruneStaleArchives = async (
 		return [];
 	}
 };
+
+// files the torrent ships but a mod toggle owns; the sync must not re-add
+// them or count their absence as an incomplete tree
+const LAUNCHER_OWNED_FILES = new Set(['d3d9.dll']);
+const isLauncherOwned = (parts: string[]) =>
+	parts.length === 1 && LAUNCHER_OWNED_FILES.has(parts[0].toLowerCase());
 
 export const torrentDownloadSelection = async (
 	clientDir: string,
@@ -327,6 +344,7 @@ export const torrentDownloadSelection = async (
 		for (let i = 0; i < files.length; i++) {
 			const f = files[i];
 			if (!f.path?.length || typeof f.length !== 'number') return null;
+			if (isLauncherOwned(f.path)) continue;
 			const dest = path.join(clientDir, ...f.path);
 			const st = await fs.stat(dest).catch(() => null);
 			if (!st) {
@@ -361,6 +379,7 @@ export const torrentTreeIntact = async (
 		if (!files.length) return false;
 		for (const f of files) {
 			if (!f.path?.length || typeof f.length !== 'number') return false;
+			if (isLauncherOwned(f.path)) continue;
 			const st = await fs
 				.stat(path.join(clientDir, ...f.path))
 				.catch(() => null);
@@ -439,6 +458,8 @@ export const startSeeding = async (
 			'--bt-seed-unverified=true',
 			`--seed-time=${SEED_TIME_MINUTES}`,
 			'--check-integrity=false',
+			// no prealloc: the seeder must not recreate missing files as zeros
+			'--file-allocation=none',
 			'--continue=true',
 			'--bt-save-metadata=true',
 			'--enable-dht=true',

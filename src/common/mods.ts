@@ -207,8 +207,9 @@ export const MODS: ModEntry[] = [
 export const getMod = (id: ModId): ModEntry | undefined =>
 	MODS.find(m => m.id === id);
 
-const NOT_DEFAULT_ENABLED: ModId[] = [];
-
-export const DEFAULT_ENABLED_MODS: ModId[] = MODS.filter(
-	m => !m.disabled && !NOT_DEFAULT_ENABLED.includes(m.id)
-).map(m => m.id);
+// fallback for profiles with no stored state: enabled, so legacy installs
+// keep their mods; fresh installs seed explicit off rows instead (do NOT
+// flip this list to change defaults, it strips mods from legacy profiles)
+export const DEFAULT_ENABLED_MODS: ModId[] = MODS.filter(m => !m.disabled).map(
+	m => m.id
+);

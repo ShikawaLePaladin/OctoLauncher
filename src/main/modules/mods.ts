@@ -17,7 +17,7 @@ import {
 import { type ModState } from '~common/schemas';
 
 import Preferences from './preferences';
-import { isTorrentMode } from './aria2';
+import { isTorrentMode, stopSeeding } from './aria2';
 import Observable from './observable';
 import Updater from './updater';
 import { addDll, removeDll, listDlls } from './dllsTxt';
@@ -287,6 +287,33 @@ class ModsClass extends Observable<ModsStatus> {
 
 			// torrent mode: DLLs ship in the client; a missing file goes to `missing`, not dirty
 			if (isTorrentMode()) {
+				const enabled = state?.enabled ?? DEFAULT_ENABLED_MODS.includes(m.id);
+				// dxvk loads by file presence, not dlls.txt; disabled parks
+				// d3d9.dll as .off, enabled restores it
+				if (m.id === 'dxvk' && clientDir) {
+					const live = path.join(clientDir, 'd3d9.dll');
+					const off = path.join(clientDir, 'd3d9.dll.off');
+					const liveStat = await fs.stat(live).catch(() => null);
+					if (!enabled && liveStat && liveStat.size === 0) {
+						// 0-byte aria2 stub, never park it over a real copy
+						await fs.remove(live).catch(() => undefined);
+					} else if (!enabled && liveStat) {
+						await fs.remove(off).catch(() => undefined);
+						await fs
+							.move(live, off)
+							.then(() => Logger.info('dxvk disabled: parked d3d9.dll'))
+							.catch(e => Logger.warn('Could not park d3d9.dll', e));
+					} else if (
+						enabled &&
+						!(await fs.pathExists(live)) &&
+						(await fs.pathExists(off))
+					) {
+						await fs
+							.move(off, live)
+							.then(() => Logger.info('dxvk enabled: restored d3d9.dll'))
+							.catch(e => Logger.warn('Could not restore d3d9.dll', e));
+					}
+				}
 				const files = modTargetFiles(m);
 				const present =
 					!!clientDir &&
@@ -296,7 +323,6 @@ class ModsClass extends Observable<ModsStatus> {
 							files.map(rel => fs.pathExists(path.join(clientDir, rel)))
 						)
 					).every(Boolean);
-				const enabled = state?.enabled ?? DEFAULT_ENABLED_MODS.includes(m.id);
 				installedVersion = enabled ? m.version : undefined;
 				if (enabled && files.length > 0 && !present) missing.push(m.name);
 				// only point dlls.txt at a file actually on disk
@@ -452,9 +478,15 @@ class ModsClass extends Observable<ModsStatus> {
 		}
 		// commit the player's own DLL toggles first
 		await this.#applyCustomDlls(clientDir);
-		// torrent mode: mods ship in the client; just reconcile dlls.txt
+		// torrent mode: mods ship in the client; reconcile dlls.txt. The
+		// seeder holds files open, so release it for the dxvk park/restore.
 		if (isTorrentMode()) {
-			await this.verify();
+			stopSeeding();
+			try {
+				await this.verify();
+			} finally {
+				await Updater.refreshSeeding().catch(() => undefined);
+			}
 			return;
 		}
 		if (this._value.state === 'busy') {
@@ -508,9 +540,33 @@ class ModsClass extends Observable<ModsStatus> {
 	}
 
 	async #install(m: ModEntry) {
-		// In torrent mode the mod binaries ship with the client; nothing is fetched.
-		if (isTorrentMode()) return;
 		const clientDir = Preferences.data?.clientDir;
+		// dxvk: restoring a parked copy is the only enable path that works in
+		// torrent mode (nothing is fetched there, the sync ignores d3d9.dll)
+		if (m.id === 'dxvk' && clientDir) {
+			const live = path.join(clientDir, 'd3d9.dll');
+			const off = path.join(clientDir, 'd3d9.dll.off');
+			if (!(await fs.pathExists(live)) && (await fs.pathExists(off))) {
+				Logger.info('Restoring parked d3d9.dll for dxvk');
+				await fs.move(off, live);
+				await this.#savePref(m.id, {
+					enabled: true,
+					installedVersion: m.version,
+					installedFiles: ['d3d9.dll'],
+					ignoreUpdates:
+						Preferences.data?.mods?.[m.id]?.ignoreUpdates ?? false
+				});
+				this.#patchRow(m.id, {
+					state: 'idle',
+					installedVersion: m.version,
+					progress: 1
+				});
+				return;
+			}
+		}
+		// torrent mode ships mod binaries with the client; dxvk is the
+		// exception (unsynced), a fresh enable with no parked copy downloads
+		if (isTorrentMode() && m.id !== 'dxvk') return;
 		if (!clientDir) throw new Error('No client dir');
 		if (m.source.kind === 'managed') return;
 
@@ -605,7 +661,20 @@ class ModsClass extends Observable<ModsStatus> {
 		this.#patchRow(m.id, { state: 'uninstalling', error: undefined });
 
 		const cur = Preferences.data?.mods?.[m.id];
-		const files = cur?.installedFiles ?? [];
+		// dxvk: park instead of delete so re-enable is instant and offline
+		const files = [...(cur?.installedFiles ?? [])].filter(
+			f => !(m.id === 'dxvk' && /d3d9\.dll$/i.test(f))
+		);
+		if (m.id === 'dxvk') {
+			const live = path.join(clientDir, 'd3d9.dll');
+			const off = path.join(clientDir, 'd3d9.dll.off');
+			if (await fs.pathExists(live)) {
+				await fs.remove(off).catch(() => undefined);
+				await fs
+					.move(live, off)
+					.catch(err => Logger.warn(`Couldn't park ${live}:`, err));
+			}
+		}
 
 		for (const rel of files) {
 			const fullPath = path.join(clientDir, rel);

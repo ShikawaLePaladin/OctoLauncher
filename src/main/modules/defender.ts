@@ -145,8 +145,15 @@ export const detectAntivirusBlocks = async (): Promise<string[]> => {
 	const blocked = new Set<string>();
 
 	if (clientDir && Preferences.data.syncedTorrentHash)
-		for (const name of SENSITIVE_FILES)
+		for (const name of SENSITIVE_FILES) {
+			// d3d9.dll is deliberately parked while dxvk is off, not blocked
+			if (
+				name === 'd3d9.dll' &&
+				Preferences.data.mods?.dxvk?.enabled === false
+			)
+				continue;
 			if (!fs.existsSync(path.join(clientDir, name))) blocked.add(name);
+		}
 
 	const script =
 		'Get-MpThreatDetection | Where-Object ' +
