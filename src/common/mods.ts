@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const ModIdSchema = z.enum([
+	'classicApi',
 	'dxvk',
 	'nampower',
 	'multiMonitorFix',
@@ -46,6 +47,11 @@ export type ModEntry = {
 	registerInDllsTxt?: string;
 	// hidden from the Mods tab, never enabled on fresh installs; existing installs keep it
 	disabled?: boolean;
+	// folder names of addons from the official OctoWoW catalog that pair with
+	// this mod (settings panels, API bridges, ...) — installed automatically
+	// alongside it. Only list addons whose own description explicitly frames
+	// them as a companion for this mod; anything looser stays a manual pick.
+	companionAddons?: string[];
 };
 
 export const MODS: ModEntry[] = [
@@ -67,6 +73,26 @@ export const MODS: ModEntry[] = [
 		}
 	},
 	{
+		id: 'classicApi',
+		name: 'ClassicAPI',
+		version: 'v1.10.1',
+		description:
+			'Backports 200+ later-client Lua API functions many modern addons expect.',
+		repoUrl: 'https://github.com/brues-code/ClassicAPI',
+		requires: ['vanillaFixes'],
+		source: {
+			kind: 'directFile',
+			url: 'https://github.com/brues-code/ClassicAPI/releases/download/v1.10.1/ClassicAPI.dll',
+			apiUrl: 'https://api.github.com/repos/brues-code/ClassicAPI/releases/latest',
+			parseLatest: 'githubRelease',
+			pinnedTag: 'v1.10.1',
+			assetName: 'ClassicAPI.dll',
+			sha256:
+				'bd36ab80733ef86baf91fdb35ad53a36993ca05e6d001c528a1079ddc5832209'
+		},
+		registerInDllsTxt: 'ClassicAPI.dll'
+	},
+	{
 		id: 'nampower',
 		name: 'nampower',
 		version: 'v4.6.2',
@@ -80,7 +106,8 @@ export const MODS: ModEntry[] = [
 			pinnedTag: 'v4.6.2',
 			assetName: 'nampower.dll'
 		},
-		registerInDllsTxt: 'nampower.dll'
+		registerInDllsTxt: 'nampower.dll',
+		companionAddons: ['NampowerSettings']
 	},
 	{
 		id: 'multiMonitorFix',
@@ -124,8 +151,7 @@ export const MODS: ModEntry[] = [
 			}
 		},
 		registerInDllsTxt: 'SuperWoWhook.dll',
-		// disabled 2026-08-08 pending distribution permission; delete this line to re-enable
-		disabled: true
+		companionAddons: ['SuperAPI']
 	},
 	{
 		id: 'transmogFix',
@@ -159,7 +185,8 @@ export const MODS: ModEntry[] = [
 				'UnitXP_SP3.dll': 'UnitXP_SP3.dll'
 			}
 		},
-		registerInDllsTxt: 'UnitXP_SP3.dll'
+		registerInDllsTxt: 'UnitXP_SP3.dll',
+		companionAddons: ['UnitXP_SP3_Addon']
 	},
 	{
 		id: 'vanillaFixes',

@@ -19,6 +19,7 @@ import {
 } from '~common/mods';
 import { type ModState } from '~common/schemas';
 
+import Addons from './addons';
 import Preferences from './preferences';
 import { isTorrentMode, stopSeeding } from './aria2';
 import Observable from './observable';
@@ -521,6 +522,16 @@ class ModsClass extends Observable<ModsStatus> {
 			dxvkVariant: cur?.dxvkVariant
 		});
 		this.#patchRow(id, { enabled });
+		// companion addons (settings panels, API bridges) are a separate,
+		// independent install from the mod's own DLL — enabling them here
+		// mirrors how the Addons/Discover tabs install directly with no
+		// staged "Apply" step, and it works under torrent mode too, where
+		// applyAll() never reaches the per-mod #install() loop below.
+		const companions = enabled ? getMod(id)?.companionAddons : undefined;
+		if (companions?.length)
+			Addons.update(companions).catch(e =>
+				Logger.warn(`Failed to install companion addons for ${id}:`, e)
+			);
 	}
 
 	async setIgnoreUpdates(id: ModId, ignore: boolean) {
