@@ -722,17 +722,13 @@ export const ensureDxvkConf = async (clientDir: string) => {
 	if (!(await fs.pathExists(path.join(clientDir, 'd3d9.dll')))) return;
 	const confPath = path.join(clientDir, 'dxvk.conf');
 
-	if (await fs.pathExists(confPath)) {
-		const existing = await fs.readFile(confPath, 'utf-8');
-		// player-owned: leave it alone unless they explicitly confirmed a
-		// takeover (via the Mods tab) — the rewrite below adds the marker,
-		// so this only ever needs to happen once
-		if (
-			!existing.startsWith(DXVK_CONF_MARKER) &&
-			!Preferences.data.dxvkConfTakeover
-		)
-			return;
-	}
+	const existing = (await fs.pathExists(confPath))
+		? await fs.readFile(confPath, 'utf-8')
+		: null;
+	const ownedByLauncher = existing?.startsWith(DXVK_CONF_MARKER) ?? true;
+	// player-owned: leave it alone unless they explicitly confirmed a
+	// takeover (via the Mods tab)
+	if (!ownedByLauncher && !Preferences.data.dxvkConfTakeover) return;
 
 	const { dxvkPreset, dxvkShowFps, hardware } = Preferences.data;
 	const confLines = dxvkPresetLines(dxvkPreset, hardware ?? null, !!dxvkShowFps);
@@ -743,11 +739,15 @@ export const ensureDxvkConf = async (clientDir: string) => {
 		''
 	]);
 	const next = [DXVK_CONF_MARKER, '', ...body].join('\n');
-	const current = (await fs.pathExists(confPath))
-		? await fs.readFile(confPath, 'utf-8')
-		: null;
-	if (current === next) return;
+	if (existing === next) return;
 
 	await fs.writeFile(confPath, next);
+	// takeover is a one-shot permission to overwrite THIS external file —
+	// the file we just wrote now carries the marker, so a future external
+	// file (the player deletes the marker again to hand-edit, exactly as
+	// its comment instructs) must be confirmed again rather than silently
+	// overwritten forever.
+	if (Preferences.data.dxvkConfTakeover)
+		Preferences.data = { dxvkConfTakeover: false };
 	Logger.log(`Wrote dxvk.conf (preset: ${dxvkPreset})`);
 };

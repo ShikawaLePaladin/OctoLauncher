@@ -120,6 +120,31 @@ const findDangerousFile = async (dir: string): Promise<string | null> => {
 	return null;
 };
 
+// carries a `.code` so isLocalCorruption()/isUnrelatedHistory() both
+// correctly treat this as an understood, non-retryable error instead of
+// misclassifying it as local corruption and re-downloading the same
+// dangerous repo before giving up.
+class DangerousFileError extends Error {
+	readonly code = 'DangerousFileError';
+	constructor(fileName: string) {
+		super(`Refused: repo contains an executable file (${fileName})`);
+		this.name = 'DangerousFileError';
+	}
+}
+
+// scan a freshly (re)populated addon folder and wipe it if it smuggled in an
+// executable — called after every clone/pull, not just the manual "add by
+// URL" flow, so this can't be bypassed by going through update()/#repair()
+// instead of install().
+const rejectIfDangerous = async (folder: string, dir: string): Promise<void> => {
+	const dangerousFile = await findDangerousFile(dir);
+	if (!dangerousFile) return;
+	const fileName = path.basename(dangerousFile);
+	await fs.remove(dir).catch(() => undefined);
+	Logger.error(`Refusing addon "${folder}": contains ${fileName}`);
+	throw new DangerousFileError(fileName);
+};
+
 // isomorphic-git throws typed errors (HttpError, NotFoundError, ...) with a
 // string `code` for conditions it understands — auth failures, missing
 // refs, network errors. A caught error WITHOUT that shape (a bare
@@ -255,6 +280,7 @@ class AddonsClass extends Observable<AddonsStatus> {
 				})
 			}
 		);
+		await rejectIfDangerous(folder, dir);
 	}
 
 	async verify() {
@@ -487,7 +513,17 @@ class AddonsClass extends Observable<AddonsStatus> {
 	) {
 		const clientPath = Preferences.data.clientDir;
 		if (!clientPath) return;
-		if (this.status.state !== 'done') return;
+		if (this.status.state !== 'done') {
+			// a caller with an explicit list (e.g. a companion-addon
+			// auto-install) has real work that's being silently dropped here —
+			// the default empty-list startup call has nothing to lose either
+			// way, so only warn when there was something to do.
+			if (toUpdate.length)
+				Logger.warn(
+					`Addons.update(${toUpdate.join(', ')}) skipped: addons not yet verified`
+				);
+			return;
+		}
 
 		const addonsPath = path.join(clientPath, 'Interface', 'Addons');
 
@@ -542,6 +578,10 @@ class AddonsClass extends Observable<AddonsStatus> {
 						{ onProgress: this.#onProgress(folder, data) }
 					);
 				}
+				// covers the gitClone/gitPull branches above; #repair() already
+				// scans internally, so this is a harmless re-check when that
+				// branch was taken
+				await rejectIfDangerous(folder, dir);
 				const toc = readTocData(
 					await fs.readFile(path.join(dir, `${folder}.toc`), 'utf-8')
 				);
@@ -621,24 +661,7 @@ class AddonsClass extends Observable<AddonsStatus> {
 				{ dir, url: data.git, ref: data.ref ?? data.branch },
 				{ onProgress: this.#onProgress(data.folder, data) }
 			);
-
-			const dangerousFile = await findDangerousFile(dir);
-			if (dangerousFile) {
-				await fs.remove(dir);
-				Logger.error(
-					`Refusing addon "${data.folder}": contains ${path.basename(
-						dangerousFile
-					)}`
-				);
-				this.#setAddon(data.folder, {
-					...data,
-					status: 'invalid',
-					error: `Refused: repo contains an executable file (${path.basename(
-						dangerousFile
-					)})`
-				});
-				return;
-			}
+			await rejectIfDangerous(data.folder, dir);
 
 			const toc = await readTocData(
 				await fs.readFile(path.join(dir, `${data.folder}.toc`), 'utf-8')

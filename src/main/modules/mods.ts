@@ -90,6 +90,15 @@ const effectiveDxvkChoice = (): DxvkVariantId | 'none' => {
 	);
 };
 
+// whether d3d9.dll should actually exist right now — combines the player's
+// own toggle with hardware capability. Preferences.data.mods.dxvk.enabled
+// alone isn't enough: verify() computes the hardware-gated "no Vulkan"
+// override only for the in-memory status row, it's never written back to
+// the stored preference, so callers outside this module (e.g. the
+// antivirus-block detector) would otherwise see a stale "enabled" value.
+export const isDxvkEffectivelyEnabled = (): boolean =>
+	effectiveDxvkChoice() !== 'none' && !!Preferences.data?.mods?.dxvk?.enabled;
+
 const dxvkVariantFromVersion = (version: string): DxvkVariantId | undefined =>
 	(Object.keys(DXVK_VARIANTS) as DxvkVariantId[]).find(
 		k => DXVK_VARIANTS[k].version === version

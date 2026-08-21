@@ -7,6 +7,7 @@ import { app } from 'electron';
 import Logger from 'electron-log/main';
 
 import Preferences from './preferences';
+import { isDxvkEffectivelyEnabled } from './mods';
 
 export type ExclusionResult = { ok: boolean; error?: string; paths?: string[] };
 
@@ -163,12 +164,13 @@ export const detectAntivirusBlocks = async (): Promise<string[]> => {
 
 	if (clientDir && Preferences.data.syncedTorrentHash)
 		for (const name of SENSITIVE_FILES) {
-			// d3d9.dll is deliberately parked while dxvk is off, not blocked
-			if (
-				name === 'd3d9.dll' &&
-				Preferences.data.mods?.dxvk?.enabled === false
-			)
-				continue;
+			// d3d9.dll is deliberately parked/never installed while dxvk is
+			// off — including the hardware-gated "no Vulkan" case, which
+			// only overrides the in-memory status row and never gets
+			// written back to this stored preference — so check the
+			// resolved state, not the raw toggle, or a no-Vulkan PC gets an
+			// incorrect "antivirus blocked this" warning.
+			if (name === 'd3d9.dll' && !isDxvkEffectivelyEnabled()) continue;
 			if (!fs.existsSync(path.join(clientDir, name))) blocked.add(name);
 		}
 
