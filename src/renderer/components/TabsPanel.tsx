@@ -1,4 +1,5 @@
 import AddonsTab from './tabs/AddonsTab';
+import DiscoverTab from './tabs/DiscoverTab';
 import ModsTab from './tabs/ModsTab';
 import NewsTab from './tabs/NewsTab';
 import TweaksTab from './tabs/TweaksTab';
@@ -8,6 +9,7 @@ const Tabs = {
 	news: NewsTab,
 	tweaks: TweaksTab,
 	addons: AddonsTab,
+	discover: DiscoverTab,
 	mods: ModsTab
 } as const;
 
