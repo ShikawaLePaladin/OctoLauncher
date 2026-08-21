@@ -11,6 +11,7 @@ import { type AddonData, type TocData } from '~common/schemas';
 import { runWorker } from '~main/utils';
 import gitPull from '~main/workers/gitPull?nodeWorker';
 import gitClone from '~main/workers/gitClone?nodeWorker';
+import gitFetch from '~main/workers/gitFetch?nodeWorker';
 
 import Preferences from './preferences';
 import Observable from './observable';
@@ -21,7 +22,7 @@ export type AddonsStatus = {
 	available: AddonData[];
 };
 
-type AddonsList = {
+export type AddonsList = {
 	name: string;
 	owner: string;
 	branch?: string;
@@ -72,6 +73,53 @@ const isAllowedGitUrl = (url: string) => {
 	}
 };
 
+// A WoW addon is Lua/XML/TOC/textures — the client's Lua sandbox has no
+// io/os/ffi access, so addon *code* can't touch the filesystem or run
+// anything on its own. This check isn't a malware scanner (no tool can
+// verify Lua is "safe"); it closes the one concrete gap a git-cloned addon
+// folder has: nothing stops the repo from also shipping an actual
+// executable that a confused player might double-click straight out of
+// Interface\AddOns, or that later abuses some other unrelated exploit.
+const DANGEROUS_EXTENSIONS = new Set([
+	'.exe',
+	'.dll',
+	'.scr',
+	'.bat',
+	'.cmd',
+	'.com',
+	'.msi',
+	'.ps1',
+	'.vbs',
+	'.vbe',
+	'.js',
+	'.jse',
+	'.wsf',
+	'.wsh',
+	'.jar',
+	'.lnk',
+	'.reg',
+	'.hta'
+]);
+
+const findDangerousFile = async (dir: string): Promise<string | null> => {
+	const entries = await fs
+		.readdir(dir, { withFileTypes: true })
+		.catch(() => []);
+	for (const entry of entries) {
+		if (entry.name === '.git') continue;
+		const full = path.join(dir, entry.name);
+		if (entry.isDirectory()) {
+			const found = await findDangerousFile(full);
+			if (found) return found;
+		} else if (
+			DANGEROUS_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+		) {
+			return full;
+		}
+	}
+	return null;
+};
+
 // isomorphic-git throws typed errors (HttpError, NotFoundError, ...) with a
 // string `code` for conditions it understands — auth failures, missing
 // refs, network errors. A caught error WITHOUT that shape (a bare
@@ -81,6 +129,14 @@ const isAllowedGitUrl = (url: string) => {
 const isLocalCorruption = (e: unknown): boolean =>
 	e instanceof Error && typeof (e as { code?: unknown }).code !== 'string';
 
+// thrown by git.pull() when the local history and the remote's don't share
+// a common ancestor — expected right after a repo-moved repoint (the old
+// clone's objects predate the new remote entirely), not something a merge
+// can ever resolve. A fresh re-clone is the only fix, same as corruption.
+const isUnrelatedHistory = (e: unknown): boolean =>
+	e instanceof Error &&
+	(e as { code?: unknown }).code === 'MergeNotSupportedError';
+
 const errorDetail = (e: unknown): string => {
 	if (!(e instanceof Error)) return String(e);
 	const response = (e as { data?: { response?: unknown } }).data?.response;
@@ -89,7 +145,7 @@ const errorDetail = (e: unknown): string => {
 		: e.message;
 };
 
-const fetchAddons = async () => {
+export const fetchAddons = async () => {
 	try {
 		const response = await fetch(
 			`${
@@ -165,8 +221,7 @@ class AddonsClass extends Observable<AddonsStatus> {
 						/property="og:image" content="([^"]*)"/
 					)?.[1];
 				}
-			} catch {
-			}
+			} catch {}
 
 			const folder = gitUrl.slice(0, -4).split('/').at(-1);
 			if (isUnsafeFolder(folder)) return undefined;
@@ -190,12 +245,16 @@ class AddonsClass extends Observable<AddonsStatus> {
 		// gitClone.ts already backs `dir` up to a .bak folder and restores it
 		// if the fresh clone fails — deleting it here first would remove that
 		// safety net and leave the addon folder empty on any clone failure.
-		await runWorker(gitClone, { dir, url, ref }, {
-			onProgress: this.#onProgress(folder, {
-				status: 'downloading',
-				folder
-			})
-		});
+		await runWorker(
+			gitClone,
+			{ dir, url, ref },
+			{
+				onProgress: this.#onProgress(folder, {
+					status: 'downloading',
+					folder
+				})
+			}
+		);
 	}
 
 	async verify() {
@@ -299,7 +358,25 @@ class AddonsClass extends Observable<AddonsStatus> {
 			}
 
 			try {
-				await git.fetch({ fs, dir, http, tags: true });
+				// same rationale as update(): a repo can be renamed/transferred
+				// after this addon was originally cloned, leaving the local
+				// remote pointed at a URL that now 401s instead of the
+				// catalog's current one
+				const repointUrl =
+					avail?.git && remote.url !== avail.git && isAllowedGitUrl(avail.git)
+						? avail.git
+						: undefined;
+				// git.fetch() is the one network- and CPU-heavy step here (a
+				// large repo's full history can take minutes to parse) — run it
+				// off the main thread so it can't freeze the renderer, same as
+				// the clone/pull workers below.
+				await runWorker(gitFetch, {
+					dir,
+					remoteName: remote.remote,
+					repointUrl
+				});
+				if (repointUrl)
+					Logger.info(`Addon "${folder}" remote repointed to ${repointUrl}`);
 
 				const branch = await git.currentBranch({ fs, dir });
 
@@ -331,8 +408,11 @@ class AddonsClass extends Observable<AddonsStatus> {
 
 				const isUpToDate =
 					!hasChanges && remoteCommit && localCommit === remoteCommit;
+				// prefer the catalog's URL over `remote.url`, which was read
+				// before the repoint above and would otherwise write the dead
+				// URL right back into this addon's tracked state
 				this.#setAddon(folder, {
-					git: remote.url,
+					git: avail?.git ?? remote.url,
 					status: isUpToDate ? 'upToDate' : 'outOfDate',
 					toc,
 					description: avail?.description,
@@ -348,14 +428,15 @@ class AddonsClass extends Observable<AddonsStatus> {
 						: `Addon "${folder}" has an update available`
 				);
 			} catch (e) {
-				if (isLocalCorruption(e)) {
+				if (isLocalCorruption(e) || isUnrelatedHistory(e)) {
 					try {
-						await this.#repair(folder, dir, remote.url, avail?.ref);
+						const repairUrl = avail?.git ?? remote.url;
+						await this.#repair(folder, dir, repairUrl, avail?.ref);
 						const repairedToc = readTocData(
 							await fs.readFile(path.join(dir, `${folder}.toc`), 'utf-8')
 						);
 						this.#setAddon(folder, {
-							git: remote.url,
+							git: repairUrl,
 							status: 'outOfDate',
 							error: 'Re-installed after a local error',
 							toc: repairedToc,
@@ -369,7 +450,7 @@ class AddonsClass extends Observable<AddonsStatus> {
 					}
 				}
 				this.#setAddon(folder, {
-					git: remote.url,
+					git: avail?.git ?? remote.url,
 					status: 'invalid',
 					error: errorDetail(e),
 					toc,
@@ -434,6 +515,19 @@ class AddonsClass extends Observable<AddonsStatus> {
 						{ dir, url: data.git, ref: data.ref ?? data.branch },
 						{ onProgress: this.#onProgress(folder, data) }
 					);
+				} else if (
+					data.git &&
+					remote.url !== data.git &&
+					isAllowedGitUrl(data.git)
+				) {
+					// the catalog's URL for an addon can change (repo renamed or
+					// transferred to a new owner). The old and new repos rarely
+					// share commit history, so a pull would try to merge unrelated
+					// trees and fail — re-clone fresh from the new URL instead.
+					Logger.info(
+						`Addon "${folder}" repo moved; re-cloning from ${data.git}`
+					);
+					await this.#repair(folder, dir, data.git, data.ref);
 				} else {
 					const branch =
 						(await git.currentBranch({ fs, dir })) ?? avail?.branch ?? 'master';
@@ -455,7 +549,7 @@ class AddonsClass extends Observable<AddonsStatus> {
 				this.#setAddon(folder, { ...data, toc, status: 'upToDate' });
 				Logger.log(`Updated addon "${folder}"`);
 			} catch (e) {
-				if (isLocalCorruption(e) && data.git) {
+				if ((isLocalCorruption(e) || isUnrelatedHistory(e)) && data.git) {
 					try {
 						await this.#repair(folder, dir, data.git, data.ref);
 						const toc = readTocData(
@@ -527,6 +621,25 @@ class AddonsClass extends Observable<AddonsStatus> {
 				{ dir, url: data.git, ref: data.ref ?? data.branch },
 				{ onProgress: this.#onProgress(data.folder, data) }
 			);
+
+			const dangerousFile = await findDangerousFile(dir);
+			if (dangerousFile) {
+				await fs.remove(dir);
+				Logger.error(
+					`Refusing addon "${data.folder}": contains ${path.basename(
+						dangerousFile
+					)}`
+				);
+				this.#setAddon(data.folder, {
+					...data,
+					status: 'invalid',
+					error: `Refused: repo contains an executable file (${path.basename(
+						dangerousFile
+					)})`
+				});
+				return;
+			}
+
 			const toc = await readTocData(
 				await fs.readFile(path.join(dir, `${data.folder}.toc`), 'utf-8')
 			);
