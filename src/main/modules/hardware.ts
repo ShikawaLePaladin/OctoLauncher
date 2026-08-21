@@ -1,12 +1,15 @@
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 
-import { app } from 'electron';
 import Logger from 'electron-log/main';
 
 import type { HardwareInfo } from '~common/schemas';
 
-export const HARDWARE_SCHEMA_VERSION = 1;
+// bumped: getGpuModel() used to read Chromium's own (software-rendered,
+// since the app disables hardware acceleration) renderer string instead of
+// querying WMI — bumping this forces a fresh detection with the real GPU
+// name for anyone whose cached hardware info predates the fix.
+export const HARDWARE_SCHEMA_VERSION = 2;
 
 export const FARCLIP_FLOOR = 777;
 export const FARCLIP_CEILING = 3000;
@@ -74,20 +77,67 @@ const getVramMb = (): Promise<{
 	});
 };
 
-const getGpuModel = async (): Promise<string> => {
-	try {
-		const info = (await app.getGPUInfo('complete')) as {
-			auxAttributes?: { glRenderer?: string };
-			gpuDevice?: { active?: boolean; vendorId?: number; deviceId?: number }[];
+// app.getGPUInfo() reports Chromium's own renderer, which is the software
+// SwiftShader fallback here: the launcher window runs with
+// disableHardwareAcceleration() (see main/index.ts) to avoid driver crashes
+// in that small utility window. That setting has nothing to do with the
+// player's real GPU, but it makes app.getGPUInfo() useless for detecting it
+// — so this queries WMI directly instead, same as getVramMb() above.
+const getGpuModelWin32 = (): Promise<string> => {
+	const script = [
+		'$ErrorActionPreference = "Stop"',
+		'$best = $null',
+		'Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object {',
+		'  $_.Name -and $_.Name -notmatch "Basic Display|Remote Desktop|TeamViewer|VNC"',
+		'} | ForEach-Object {',
+		'  if ($null -eq $best -or [int64]$_.AdapterRAM -gt [int64]$best.AdapterRAM) { $best = $_ }',
+		'}',
+		'if ($best) { Write-Output $best.Name } else { Write-Output "" }'
+	].join('\n');
+	const encoded = Buffer.from(script, 'utf16le').toString('base64');
+
+	return new Promise(resolve => {
+		let settled = false;
+		const finish = (name: string) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(name);
 		};
-		const renderer = info?.auxAttributes?.glRenderer?.trim();
-		if (renderer) return renderer;
-		const active = info?.gpuDevice?.find(d => d.active) ?? info?.gpuDevice?.[0];
-		if (active) return `vendor ${active.vendorId} device ${active.deviceId}`;
+
+		const child = spawn(
+			'powershell.exe',
+			['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+			{ windowsHide: true }
+		);
+
+		const timer = setTimeout(() => {
+			child.kill();
+			Logger.warn('GPU model detection timed out');
+			finish('unknown');
+		}, 8000);
+
+		let stdout = '';
+		child.stdout.on('data', d => (stdout += String(d)));
+		child.on('error', e => {
+			Logger.warn('GPU model detection failed to launch PowerShell', e);
+			finish('unknown');
+		});
+		child.on('exit', code => {
+			const name = stdout.trim();
+			finish(code === 0 && name ? name : 'unknown');
+		});
+	});
+};
+
+const getGpuModel = async (): Promise<string> => {
+	if (os.platform() !== 'win32') return 'unknown';
+	try {
+		return await getGpuModelWin32();
 	} catch (e) {
-		Logger.warn('GPU info detection failed', e);
+		Logger.warn('GPU model detection failed', e);
+		return 'unknown';
 	}
-	return 'unknown';
 };
 
 export const detectHardware = async (): Promise<HardwareInfo> => {
