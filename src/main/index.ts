@@ -65,7 +65,7 @@ const createWindow = async () => {
 		minHeight: 700,
 		icon,
 		frame: false,
-		maximizable: false,
+		maximizable: true,
 		fullscreenable: false,
 		webPreferences: {
 			preload: join(__dirname, '../preload/index.js'),
@@ -103,6 +103,8 @@ const createWindow = async () => {
 	createIPCHandler({ router: appRouter, windows: [mainWindow] });
 
 	mainWindow.on('ready-to-show', () => {
+		if (Preferences.data.rememberPosition && Preferences.data.windowMaximized)
+			mainWindow?.maximize();
 		mainWindow?.show();
 	});
 	mainWindow.webContents.setWindowOpenHandler(details => {
@@ -111,9 +113,14 @@ const createWindow = async () => {
 	});
 	mainWindow.on('close', () => {
 		if (!mainWindow) return;
-		const [x = 0, y = 0] = mainWindow.getPosition();
-		const [width = 0, height = 0] = mainWindow.getSize();
-		Preferences.data = { windowPosition: { x, y, width, height } };
+		// getNormalBounds() is the windowed-state size/position even while
+		// currently maximized — getPosition()/getSize() would save the
+		// full-screen bounds instead, breaking the restored size on unmaximize
+		const { x, y, width, height } = mainWindow.getNormalBounds();
+		Preferences.data = {
+			windowPosition: { x, y, width, height },
+			windowMaximized: mainWindow.isMaximized()
+		};
 	});
 
 	if (is.dev && process.env.ELECTRON_RENDERER_URL) {

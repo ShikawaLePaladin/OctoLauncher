@@ -1,4 +1,4 @@
-import { Settings, Minus, X } from 'lucide-react';
+import { Settings, Minus, Square, Copy, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { api } from '~renderer/utils/api';
@@ -18,7 +18,12 @@ const TopBar = () => {
 	});
 
 	const minimize = api.general.minimize.useMutation();
+	const toggleMaximize = api.general.toggleMaximize.useMutation();
 	const quit = api.general.quit.useMutation();
+	const [maximized, setMaximized] = useState(false);
+	api.general.isMaximized.useSubscription(undefined, {
+		onData: setMaximized
+	});
 	return (
 		<div
 			style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
@@ -45,6 +50,13 @@ const TopBar = () => {
 					title={t('topbar.minimize')}
 					onClick={() => minimize.mutateAsync()}
 					size={16}
+					className="!p-1"
+				/>
+				<TextButton
+					icon={maximized ? Copy : Square}
+					title={t(maximized ? 'topbar.restore' : 'topbar.maximize')}
+					onClick={() => toggleMaximize.mutateAsync()}
+					size={14}
 					className="!p-1"
 				/>
 				<DialogButton

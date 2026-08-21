@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { app, dialog, shell } from 'electron';
+import { observable } from '@trpc/server/observable';
 import Logger from 'electron-log/main';
 import { z } from 'zod';
 
@@ -41,6 +42,24 @@ export const generalRouter = createTRPCRouter({
 	}),
 	quit: publicProcedure.mutation(() => app.quit()),
 	minimize: publicProcedure.mutation(() => mainWindow?.minimize()),
+	toggleMaximize: publicProcedure.mutation(() => {
+		if (!mainWindow) return;
+		if (mainWindow.isMaximized()) mainWindow.unmaximize();
+		else mainWindow.maximize();
+	}),
+	isMaximized: publicProcedure.subscription(() =>
+		observable<boolean>(emit => {
+			if (!mainWindow) return;
+			emit.next(mainWindow.isMaximized());
+			const onChange = () => emit.next(!!mainWindow?.isMaximized());
+			mainWindow.on('maximize', onChange);
+			mainWindow.on('unmaximize', onChange);
+			return () => {
+				mainWindow?.off('maximize', onChange);
+				mainWindow?.off('unmaximize', onChange);
+			};
+		})
+	),
 	openLink: publicProcedure
 		.input(z.string().url())
 		.mutation(({ input }) => shell.openExternal(input)),

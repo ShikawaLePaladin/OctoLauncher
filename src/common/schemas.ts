@@ -89,7 +89,7 @@ export const PreferencesSchema = z.object({
 	clientPatchHash: z.string().optional(),
 	vmmfWrittenIndex: z.number().int().nonnegative().optional(),
 	lastWrittenResolution: z.string().optional(),
-	rememberPosition: f.boolean(),
+	rememberPosition: f.boolean(true),
 	windowPosition: z
 		.object({
 			x: z.number(),
@@ -98,6 +98,7 @@ export const PreferencesSchema = z.object({
 			height: z.number()
 		})
 		.nullish(),
+	windowMaximized: z.boolean().optional(),
 	config: ConfigWtfSchema.default({}),
 	mods: z.record(ModStateSchema).default({}),
 	hardware: HardwareInfoSchema.optional(),
