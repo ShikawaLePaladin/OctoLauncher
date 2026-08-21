@@ -5,11 +5,14 @@ import Logger from 'electron-log/main';
 
 import type { HardwareInfo } from '~common/schemas';
 
-// bumped: getGpuModel() used to read Chromium's own (software-rendered,
-// since the app disables hardware acceleration) renderer string instead of
-// querying WMI — bumping this forces a fresh detection with the real GPU
-// name for anyone whose cached hardware info predates the fix.
-export const HARDWARE_SCHEMA_VERSION = 2;
+// bumped twice: v2 switched getGpuModel() off Chromium's own
+// (software-rendered, since the app disables hardware acceleration)
+// renderer string to querying WMI directly. v3 fixed that WMI query to
+// prefer a discrete GPU over an integrated one on hybrid-graphics laptops,
+// where the discrete card's AdapterRAM is unreliable while it's powered
+// down. Both bumps force a fresh detection for anyone whose cached
+// hardware info predates the fix.
+export const HARDWARE_SCHEMA_VERSION = 3;
 
 export const FARCLIP_FLOOR = 777;
 export const FARCLIP_CEILING = 3000;
@@ -86,10 +89,25 @@ const getVramMb = (): Promise<{
 const getGpuModelWin32 = (): Promise<string> => {
 	const script = [
 		'$ErrorActionPreference = "Stop"',
-		'$best = $null',
-		'Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object {',
+		'$candidates = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object {',
 		'  $_.Name -and $_.Name -notmatch "Basic Display|Remote Desktop|TeamViewer|VNC"',
-		'} | ForEach-Object {',
+		'}',
+		// on a laptop with hybrid graphics (Intel + NVIDIA/AMD), picking by
+		// highest AdapterRAM alone is unreliable: the discrete GPU is often
+		// powered down when idle and reports 0 or a stale VRAM value over
+		// WMI in that state, while the integrated GPU (always active,
+		// driving the display) reports normally — so the iGPU wins by
+		// accident and DXVK gets tuned for the wrong chip. Prefer any
+		// non-integrated candidate outright; only fall back to ranking by
+		// AdapterRAM among integrated ones if that's all there is. Intel Arc
+		// is a real discrete GPU, not an iGPU, so it's excluded from the
+		// "integrated" match despite starting with "Intel".
+		'$discrete = $candidates | Where-Object {',
+		'  -not (($_.Name -match "^Intel" -and $_.Name -notmatch "Arc") -or ($_.Name -match "Radeon(\\(TM\\))?\\s*Graphics$"))',
+		'}',
+		'$pool = if ($discrete) { $discrete } else { $candidates }',
+		'$best = $null',
+		'$pool | ForEach-Object {',
 		'  if ($null -eq $best -or [int64]$_.AdapterRAM -gt [int64]$best.AdapterRAM) { $best = $_ }',
 		'}',
 		'if ($best) { Write-Output $best.Name } else { Write-Output "" }'
