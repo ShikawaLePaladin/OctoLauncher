@@ -207,6 +207,62 @@ export const MODS: ModEntry[] = [
 export const getMod = (id: ModId): ModEntry | undefined =>
 	MODS.find(m => m.id === id);
 
+// dxvk ships two hardware-gated builds. 'auto' (the default) picks between
+// them from detected Vulkan support + GPU generation; the player can also
+// force one explicitly, or 'none' to skip dxvk regardless of the recommendation.
+export type DxvkVariantId = 'gplasync' | 'legacy';
+
+export type DxvkVariant = {
+	label: string;
+	version: string;
+	note: string;
+	source: Extract<ModSource, { kind: 'archive' }>;
+};
+
+export const DXVK_VARIANTS: Record<DxvkVariantId, DxvkVariant> = {
+	gplasync: {
+		label: 'DXVK (gplasync)',
+		version: 'v2.7.1-1',
+		note: 'For recent GPUs with a Vulkan 1.3 driver.',
+		source: {
+			kind: 'archive',
+			url: 'https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/releases/dxvk-gplasync-v2.7.1-1.tar.gz?ref_type=heads',
+			pinnedTag: 'v2.7.1-1',
+			format: 'tar.gz',
+			sha256:
+				'590050b88be7b156cf641abe762e1ad47ebbe828f7f0edb2970aa4716ee3af6d',
+			extractMap: {
+				'dxvk-gplasync-v2.7.1-1/x32/d3d9.dll': 'd3d9.dll'
+			}
+		}
+	},
+	legacy: {
+		label: 'DXVK (1.10.3)',
+		version: 'v1.10.3',
+		note: 'For older GPUs whose driver only supports Vulkan 1.1/1.2.',
+		source: {
+			kind: 'archive',
+			url: 'https://github.com/doitsujin/dxvk/releases/download/v1.10.3/dxvk-1.10.3.tar.gz',
+			pinnedTag: 'v1.10.3',
+			format: 'tar.gz',
+			sha256:
+				'8d1a3c912761b450c879f98478ae64f6f6639e40ce6848170a0f6b8596fd53c6',
+			extractMap: {
+				'dxvk-1.10.3/x32/d3d9.dll': 'd3d9.dll'
+			}
+		}
+	}
+};
+
+// sha256 of the extracted x32/d3d9.dll itself (not the tarball) for each
+// variant, used to recognize a launcher-installed dxvk file on disk so it can
+// be parked/restored instead of mistaken for a foreign file.
+export const DXVK_DLL_SHA256: Record<DxvkVariantId, string> = {
+	gplasync:
+		'a2cd6841e102f37189527c118ec416fa5071ac4d3120762973d9a0c6c5fd067e',
+	legacy: 'b6cfa2cd62af73b80d461085d126004b0e22dd3944c9246c58e3a68e747b56b6'
+};
+
 // fallback for profiles with no stored state: enabled, so legacy installs
 // keep their mods; fresh installs seed explicit off rows instead (do NOT
 // flip this list to change defaults, it strips mods from legacy profiles)

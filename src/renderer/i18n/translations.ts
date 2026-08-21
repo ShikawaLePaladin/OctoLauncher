@@ -98,6 +98,25 @@ const enUS: Dict = {
 	'misc.reload': 'Reload',
 	'mods.update': 'update',
 	'mods.ignoreUpdates': 'Ignore updates',
+	'mods.dxvkVariant': 'dxvk build',
+	'mods.dxvkVariant.auto': 'Auto (recommended)',
+	'mods.dxvkVariant.gplasync': 'gplasync (recent GPUs)',
+	'mods.dxvkVariant.legacy': '1.10.3 (older GPUs)',
+	'mods.dxvkVariant.none': "Don't use dxvk",
+	'mods.dxvkNoVulkan':
+		'No usable Vulkan driver was found on this PC — dxvk will not be installed unless you force a build below.',
+	'mods.dxvkRecommended': 'Recommended for this PC: {build}.',
+	'mods.dxvkRedetect': 'Re-check GPU',
+	'mods.dxvkPresetLabel': 'dxvk tuning',
+	'mods.dxvkPreset.balanced': 'Balanced (recommended)',
+	'mods.dxvkPreset.lowEnd': 'Older / lower-end PC',
+	'mods.dxvkPreset.performance': 'Best performance',
+	'mods.dxvkShowFps': 'Show FPS overlay in-game',
+	'mods.dxvkConfExternal':
+		'dxvk.conf was set up by hand — changing a setting below will ask before overwriting it.',
+	'mods.dxvkConfTakeoverConfirm':
+		'Your dxvk.conf was set up by hand. Changing this setting will overwrite it with one the launcher manages — your custom settings will be lost. Continue?',
+	'mods.dxvkConfTakeoverContinue': 'Overwrite it',
 	'mods.title': 'CUSTOM MODS',
 	'mods.unsavedChanges': 'unsaved changes',
 	'mods.warning':
@@ -127,6 +146,9 @@ const enUS: Dict = {
 	'av.whyHappening': 'Why is this happening?',
 	'av.allowThrough': 'Allow through antivirus',
 	'av.addedRetry': 'Added. Close this and try again.',
+	'av.addedRetrying': 'Exclusion added — reinstalling the blocked mod(s)...',
+	'av.addedDone': 'Done — the blocked mod(s) were reinstalled.',
+	'av.openWindowsSecurity': 'Open Windows Security to add it by hand',
 	'av.close': 'Close',
 	'av.whyTitle': 'WHY ANTIVIRUS FLAGS MODS',
 	'av.whyIntro':

@@ -20,6 +20,7 @@ import {
 	recommendFarClip,
 	HARDWARE_SCHEMA_VERSION
 } from './modules/hardware';
+import { detectVulkan, VULKAN_SCHEMA_VERSION } from './modules/vulkan';
 
 Logger.initialize();
 Logger.errorHandler.startCatching();
@@ -163,8 +164,22 @@ if (!gotSingleInstanceLock) {
 					Preferences.data = {
 						config: { ...Preferences.data.config, farClip: rec }
 					};
+
+				let vulkan = Preferences.data.vulkan;
+				if (!vulkan || vulkan.schemaVersion < VULKAN_SCHEMA_VERSION) {
+					vulkan = await detectVulkan();
+					Preferences.data = { vulkan };
+				}
+
+				// the first Mods.verify() above may have run before hardware/vulkan
+				// detection resolved, resolving dxvk to 'none' by default; re-run
+				// now that a real recommendation can be computed
+				Mods.verify();
 			} catch (e) {
-				Logger.error('Hardware detection / farClip recommendation failed', e);
+				Logger.error(
+					'Hardware/Vulkan detection or farClip recommendation failed',
+					e
+				);
 			}
 		})();
 

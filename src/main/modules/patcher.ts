@@ -5,7 +5,11 @@ import fs from 'fs-extra';
 import Logger from 'electron-log/main';
 
 import Preferences from '~main/modules/preferences';
-import { ConfigWtfSchema, type PreferencesSchema } from '~common/schemas';
+import {
+	ConfigWtfSchema,
+	type PreferencesSchema,
+	type HardwareInfo
+} from '~common/schemas';
 import { isNotUndef } from '~common/utils';
 import { readPristineWow } from '~main/modules/aria2';
 import { enumerateDisplays } from '~main/modules/displays';
@@ -441,6 +445,13 @@ export const patchConfig = async (forceTweaks = false) => {
 	const height = Math.round(primaryDisplay.bounds.height * scale);
 
 	const seededResolution = `${width}x${height}`;
+	// clamp to what Config.wtf's gxRefresh sensibly supports; the engine's
+	// own logic is tuned around 60, and very high values here just make the
+	// client request display modes that may not exist for gxWindow=0 users
+	const seededRefresh = Math.min(
+		144,
+		Math.max(60, Math.round(primaryDisplay.displayFrequency || 60))
+	);
 
 	const seed = isFirstRun
 		? {
@@ -448,8 +459,12 @@ export const patchConfig = async (forceTweaks = false) => {
 				gxResolution: seededResolution,
 				gxColorBits: primaryDisplay.colorDepth,
 				gxDepthBits: primaryDisplay.colorDepth,
-				gxRefresh: 60,
-				gxMultisample: 8,
+				gxRefresh: seededRefresh,
+				// 8x MSAA is a rough combination with DXVK on first launch,
+				// before the player has ever seen the in-game video menu to
+				// lower it themselves; 2x is a much safer starting point
+				// across a wide range of hardware and dxvk builds.
+				gxMultisample: 2,
 				gxMultisampleQuality: 0,
 				gxTripleBuffer: 1,
 				anisotropic: 16,
@@ -524,21 +539,215 @@ export const patchConfig = async (forceTweaks = false) => {
 	Logger.log('Config.wtf successfully patched');
 };
 
+// first line of any dxvk.conf we write, used to tell "the launcher generated
+// this" apart from a file a player edited or dropped in by hand — only files
+// carrying this marker are ever regenerated or overwritten.
+const DXVK_CONF_MARKER =
+	'# Managed by OctoLauncher — delete this line to edit by hand instead.';
+
+// One line per setting, in the order it should render, each with the
+// comment explaining *why* — mirrors the structure of a well-tuned
+// hand-written dxvk.conf rather than a bare key=value dump.
+type DxvkConfLine = { comment: string[]; key: string; value: string | number | boolean };
+
+const dxvkPresetLines = (
+	preset: PreferencesSchema['dxvkPreset'],
+	hw: HardwareInfo | null,
+	showFps: boolean
+): DxvkConfLine[] => {
+	const cores = hw?.cpuCores ?? 4;
+	const vramMb = hw?.vramMb ?? null;
+	const lowEnd = preset === 'lowEnd';
+	const performance = preset === 'performance';
+
+	const maxAvailableMemory = lowEnd
+		? 1024
+		: vramMb
+		? Math.min(vramMb, performance ? 3072 : 2048)
+		: 2048;
+	const compilerThreads = lowEnd
+		? 1
+		: performance
+		? Math.max(1, Math.min(cores - 1, 8))
+		: Math.max(1, Math.min(Math.floor(cores / 2), 4));
+
+	const lines: DxvkConfLine[] = [
+		{
+			comment: [
+				'--- WINDOWING & DISPLAY STABILITY ---',
+				'Keeps the game in borderless-window behavior instead of exclusive',
+				'fullscreen, so alt-tabbing and screen capture (OBS/Discord) stay reliable.'
+			],
+			key: 'dxvk.allowFse',
+			value: false
+		},
+		{
+			comment: [
+				'Handles vsync inside the window instead of relying on the driver,',
+				'avoiding tearing in windowed mode without full triple-buffer latency.'
+			],
+			key: 'dxvk.tearFree',
+			value: true
+		},
+		{
+			comment: [
+				'Waits for the window to finish initializing before creating the',
+				"render surface — fixes the black/white screen hang some players hit",
+				'on launch or when alt-tabbing back in.'
+			],
+			key: 'd3d9.deferSurfaceCreation',
+			value: true
+		},
+		{
+			comment: [
+				'--- STABILITY (32-BIT CLIENT) ---',
+				'Caps the VRAM the client believes it has so a signed 32-bit overflow',
+				"can't silently corrupt it (the classic DXVK out-of-memory crash)."
+			],
+			key: 'd3d9.maxAvailableMemory',
+			value: maxAvailableMemory
+		},
+		{
+			comment: [
+				'Evicts texture data from system RAM once it is uploaded to the GPU,',
+				'reducing the 32-bit process\'s virtual memory footprint.'
+			],
+			key: 'd3d9.evictManagedOnUnlock',
+			value: true
+		},
+		{
+			comment: [
+				'--- SHADER COMPILATION & FRAME PACING ---',
+				'The actual point of the gplasync build over stock DXVK: compiles',
+				'shaders on a background thread instead of stalling the frame that',
+				'first needs them. Costs a brief visual pop-in the first time an',
+				'effect appears, in exchange for no mid-fight stutter.'
+			],
+			key: 'dxvk.enableAsync',
+			value: true
+		},
+		{
+			comment: [
+				'Number of background shader compiler threads.'
+			],
+			key: 'dxvk.numCompilerThreads',
+			value: compilerThreads
+		},
+		{
+			comment: [
+				'Limits how many frames the CPU can queue ahead of the GPU. Lower',
+				'keeps input snappier; higher smooths out inconsistent frame times.'
+			],
+			key: 'd3d9.maxFrameLatency',
+			value: lowEnd ? 2 : 1
+		},
+		{
+			comment: [
+				"The 1.12 engine ties some game logic to frame rate — reports of",
+				'visual/physics glitches start above ~245 fps, so this caps well',
+				'under that regardless of monitor refresh rate.'
+			],
+			key: 'dxvk.maxFrameRate',
+			value: 245
+		},
+		{
+			comment: ['--- VISUAL FIDELITY ---'],
+			key: 'd3d9.samplerAnisotropy',
+			value: lowEnd ? 8 : 16
+		},
+		{
+			comment: [
+				'Prevents texture shimmer/noise while the camera is moving.'
+			],
+			key: 'd3d9.clampNegativeLodBias',
+			value: true
+		},
+		{
+			comment: [
+				'Decouples the cursor from the render loop so it stays smooth even',
+				'during frame drops.'
+			],
+			key: 'd3d9.cursor',
+			value: true
+		},
+		{
+			comment: [
+				"Leaves scaling to the game's own resolution setting rather than",
+				"Windows' display scaling, which otherwise blurs the output."
+			],
+			key: 'd3d9.dpiAware',
+			value: false
+		},
+		{
+			comment: ['--- SYSTEM INTERACTION ---'],
+			key: 'dxvk.logLevel',
+			value: 'none'
+		}
+	];
+
+	if (lowEnd)
+		lines.push({
+			comment: [
+				'Graphics Pipeline Library trades extra VRAM for faster shader',
+				'linking — the wrong trade when VRAM is already scarce (per',
+				"dxvk-gplasync's own README)."
+			],
+			key: 'dxvk.enableGraphicsPipelineLibrary',
+			value: false
+		});
+
+	if (showFps)
+		lines.push({
+			comment: ['On-screen FPS + frame time overlay.'],
+			key: 'dxvk.hud',
+			value: 'fps,frametimes'
+		});
+
+	return lines;
+};
+
+// 'launcher' = safe to (re)write from the preset UI; 'external' = a file the
+// player (or an earlier hand-tuned setup) already owns, never touched;
+// 'missing' = nothing written yet, e.g. dxvk not installed.
+export const dxvkConfOwner = async (
+	clientDir: string
+): Promise<'launcher' | 'external' | 'missing'> => {
+	const confPath = path.join(clientDir, 'dxvk.conf');
+	if (!(await fs.pathExists(confPath))) return 'missing';
+	const existing = await fs.readFile(confPath, 'utf-8').catch(() => '');
+	return existing.startsWith(DXVK_CONF_MARKER) ? 'launcher' : 'external';
+};
+
 export const ensureDxvkConf = async (clientDir: string) => {
 	if (!(await fs.pathExists(path.join(clientDir, 'd3d9.dll')))) return;
 	const confPath = path.join(clientDir, 'dxvk.conf');
-	if (await fs.pathExists(confPath)) return;
-	await fs.writeFile(
-		confPath,
-		[
-			'# Cap the texture memory the 32-bit client believes it has so it cannot',
-			'# over-commit its address space (the common DXVK out-of-memory crash).',
-			'd3d9.maxAvailableMemory = 2048',
-			'd3d9.maxFrameLatency = 1',
-			'dxvk.numCompilerThreads = 2',
-			'dxvk.logLevel = none',
-			''
-		].join('\n')
-	);
-	Logger.log('Wrote dxvk.conf');
+
+	if (await fs.pathExists(confPath)) {
+		const existing = await fs.readFile(confPath, 'utf-8');
+		// player-owned: leave it alone unless they explicitly confirmed a
+		// takeover (via the Mods tab) — the rewrite below adds the marker,
+		// so this only ever needs to happen once
+		if (
+			!existing.startsWith(DXVK_CONF_MARKER) &&
+			!Preferences.data.dxvkConfTakeover
+		)
+			return;
+	}
+
+	const { dxvkPreset, dxvkShowFps, hardware } = Preferences.data;
+	const confLines = dxvkPresetLines(dxvkPreset, hardware ?? null, !!dxvkShowFps);
+
+	const body = confLines.flatMap(({ comment, key, value }) => [
+		...comment.map(c => `# ${c}`),
+		`${key} = ${typeof value === 'boolean' ? (value ? 'True' : 'False') : value}`,
+		''
+	]);
+	const next = [DXVK_CONF_MARKER, '', ...body].join('\n');
+	const current = (await fs.pathExists(confPath))
+		? await fs.readFile(confPath, 'utf-8')
+		: null;
+	if (current === next) return;
+
+	await fs.writeFile(confPath, next);
+	Logger.log(`Wrote dxvk.conf (preset: ${dxvkPreset})`);
 };

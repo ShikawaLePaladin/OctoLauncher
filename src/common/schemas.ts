@@ -33,7 +33,13 @@ export const ModStateSchema = z.object({
 	enabled: z.boolean().default(false),
 	installedVersion: z.string().optional(),
 	installedFiles: z.array(z.string()).default([]),
-	ignoreUpdates: z.boolean().default(false)
+	ignoreUpdates: z.boolean().default(false),
+	// dxvk only: which variant to install. 'auto' follows the hardware-based
+	// recommendation; the rest are an explicit player override.
+	dxvkVariant: z
+		.enum(['auto', 'gplasync', 'legacy', 'none'])
+		.default('auto')
+		.optional()
 });
 export type ModState = z.infer<typeof ModStateSchema>;
 
@@ -48,6 +54,17 @@ export const HardwareInfoSchema = z.object({
 	schemaVersion: z.number()
 });
 export type HardwareInfo = z.infer<typeof HardwareInfoSchema>;
+
+export const VulkanInfoSchema = z.object({
+	// whether a Vulkan ICD is registered for 32-bit processes (WOW6432Node on
+	// 64-bit Windows) — the client is a 32-bit executable, so this is the one
+	// that actually determines whether DXVK can load at all.
+	icd32Present: z.boolean(),
+	icd64Present: z.boolean(),
+	detectedAt: z.string(),
+	schemaVersion: z.number()
+});
+export type VulkanInfo = z.infer<typeof VulkanInfoSchema>;
 
 export const PreferencesSchema = z.object({
 	isPortable: z.boolean().optional(),
@@ -84,7 +101,14 @@ export const PreferencesSchema = z.object({
 	config: ConfigWtfSchema.default({}),
 	mods: z.record(ModStateSchema).default({}),
 	hardware: HardwareInfoSchema.optional(),
-	farClipUserSet: z.boolean().optional()
+	farClipUserSet: z.boolean().optional(),
+	vulkan: VulkanInfoSchema.optional(),
+	dxvkPreset: z.enum(['balanced', 'lowEnd', 'performance']).default('balanced'),
+	dxvkShowFps: f.boolean(),
+	// player explicitly confirmed overwriting a hand-edited dxvk.conf with
+	// the launcher-managed one; without this, ensureDxvkConf() never touches
+	// a file that doesn't already carry its own marker
+	dxvkConfTakeover: z.boolean().optional()
 });
 export type PreferencesSchema = z.infer<typeof PreferencesSchema>;
 

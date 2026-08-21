@@ -11,6 +11,8 @@ import {
 	detectAntivirusBlocks
 } from '~main/modules/defender';
 import { detectHardware, recommendFarClip } from '~main/modules/hardware';
+import { detectVulkan } from '~main/modules/vulkan';
+import Mods from '~main/modules/mods';
 
 import { createTRPCRouter, publicProcedure } from '../trpc';
 
@@ -24,6 +26,18 @@ export const generalRouter = createTRPCRouter({
 		const hardware = await detectHardware();
 		Preferences.data = { hardware };
 		return { hardware, recommendedFarClip: recommendFarClip(hardware) };
+	}),
+	redetectVulkan: publicProcedure.mutation(async () => {
+		// "Re-check GPU" in the UI: also refresh the GPU model, not just
+		// Vulkan presence — otherwise a stale/wrong cached gpuModel keeps
+		// feeding the wrong hardware into the dxvk variant recommendation.
+		const [vulkan, hardware] = await Promise.all([
+			detectVulkan(),
+			detectHardware()
+		]);
+		Preferences.data = { vulkan, hardware };
+		await Mods.verify();
+		return vulkan;
 	}),
 	quit: publicProcedure.mutation(() => app.quit()),
 	minimize: publicProcedure.mutation(() => mainWindow?.minimize()),

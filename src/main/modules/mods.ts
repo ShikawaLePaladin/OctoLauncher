@@ -10,6 +10,9 @@ import Logger from 'electron-log/main';
 import {
 	MODS,
 	DEFAULT_ENABLED_MODS,
+	DXVK_VARIANTS,
+	DXVK_DLL_SHA256,
+	type DxvkVariantId,
 	type ModEntry,
 	type ModId,
 	getMod
@@ -22,6 +25,7 @@ import Observable from './observable';
 import Updater from './updater';
 import { addDll, removeDll, listDlls } from './dllsTxt';
 import { enumerateDisplays } from './displays';
+import { recommendDxvkVariant } from './vulkan';
 
 const MOD_DOWNLOAD_TIMEOUT_MS = 60_000;
 
@@ -58,10 +62,6 @@ const KNOWN_DLLS = new Set(
 const AV_ERROR =
 	'Windows Defender blocked this download. Use "Allow through antivirus" and apply again.';
 
-// pinned dxvk-gplasync v2.7.1-1 x32 d3d9.dll (same build the client ships)
-const DXVK_DLL_SHA256 =
-	'a2cd6841e102f37189527c118ec416fa5071ac4d3120762973d9a0c6c5fd067e';
-
 const fileSha256 = async (p: string): Promise<string | null> => {
 	try {
 		return createHash('sha256')
@@ -70,6 +70,43 @@ const fileSha256 = async (p: string): Promise<string | null> => {
 	} catch {
 		return null;
 	}
+};
+
+// true if `sha` matches the x32/d3d9.dll of any dxvk variant we ship (used to
+// recognize a launcher-installed dxvk file so it can be parked/restored
+// instead of being mistaken for a foreign file and deleted)
+const isKnownDxvkDll = (sha: string | null): boolean =>
+	sha !== null && (Object.values(DXVK_DLL_SHA256) as string[]).includes(sha);
+
+// player's stored choice, resolving 'auto' against detected hardware; 'none'
+// means dxvk must not be installed regardless of the mod's enabled toggle
+const effectiveDxvkChoice = (): DxvkVariantId | 'none' => {
+	const stored = Preferences.data?.mods?.dxvk?.dxvkVariant ?? 'auto';
+	if (stored !== 'auto') return stored;
+	return recommendDxvkVariant(
+		Preferences.data?.vulkan ?? null,
+		Preferences.data?.hardware?.gpuModel ?? null
+	);
+};
+
+const dxvkVariantFromVersion = (version: string): DxvkVariantId | undefined =>
+	(Object.keys(DXVK_VARIANTS) as DxvkVariantId[]).find(
+		k => DXVK_VARIANTS[k].version === version
+	);
+
+// dxvk's real source/version depend on the resolved variant; every other mod
+// uses its static catalog entry unchanged
+const dxvkModEntry = (choice: DxvkVariantId): ModEntry => {
+	const base = getMod('dxvk');
+	if (!base) throw new Error('dxvk catalog entry missing');
+	const variant = DXVK_VARIANTS[choice];
+	return { ...base, version: variant.version, source: variant.source };
+};
+
+const resolveModEntry = (m: ModEntry): ModEntry => {
+	if (m.id !== 'dxvk') return m;
+	const choice = effectiveDxvkChoice();
+	return choice === 'none' ? m : dxvkModEntry(choice);
 };
 
 const looksLikeAvBlock = (msg: string) =>
@@ -293,6 +330,7 @@ class ModsClass extends Observable<ModsStatus> {
 
 		const missing: string[] = [];
 		let dxvkRepair = false;
+		let dxvkRepairChoice: DxvkVariantId | undefined;
 		for (const m of MODS) {
 			// disabled mods: leave dlls.txt and installed state untouched
 			if (m.disabled) continue;
@@ -300,21 +338,31 @@ class ModsClass extends Observable<ModsStatus> {
 			const state = Preferences.data?.mods?.[m.id];
 			let installedVersion = state?.installedVersion;
 
+			// dxvk: source/version depend on the hardware-resolved variant, not
+			// the static catalog entry; every other mod uses `m` unchanged
+			const dxvkChoice = m.id === 'dxvk' ? effectiveDxvkChoice() : null;
+			const effective = resolveModEntry(m);
+
 			// torrent mode: DLLs ship in the client; a missing file goes to `missing`, not dirty
 			if (isTorrentMode()) {
-				const enabled = state?.enabled ?? DEFAULT_ENABLED_MODS.includes(m.id);
+				const wantEnabled =
+					state?.enabled ?? DEFAULT_ENABLED_MODS.includes(m.id);
+				// no usable Vulkan (or player forced dxvk off): never installed,
+				// regardless of the mod's own enabled toggle
+				const enabled = dxvkChoice === 'none' ? false : wantEnabled;
 				// dxvk loads by file presence and torrent piece spillover can
 				// corrupt it; hash-verify every state: park/restore verified
 				// copies only, delete junk, re-download the pin when needed
 				if (m.id === 'dxvk' && clientDir) {
+					const targetHash =
+						dxvkChoice && dxvkChoice !== 'none'
+							? DXVK_DLL_SHA256[dxvkChoice]
+							: null;
 					const live = path.join(clientDir, 'd3d9.dll');
 					const off = path.join(clientDir, 'd3d9.dll.off');
 					const liveSha = await fileSha256(live);
 					if (!enabled) {
-						if (
-							liveSha === DXVK_DLL_SHA256 &&
-							!(await fs.pathExists(off))
-						) {
+						if (isKnownDxvkDll(liveSha) && !(await fs.pathExists(off))) {
 							await fs
 								.move(live, off)
 								.then(() => Logger.info('dxvk disabled: parked d3d9.dll'))
@@ -322,13 +370,13 @@ class ModsClass extends Observable<ModsStatus> {
 						} else if (liveSha !== null) {
 							await fs.remove(live).catch(() => undefined);
 						}
-					} else if (liveSha !== DXVK_DLL_SHA256) {
+					} else if (targetHash && liveSha !== targetHash) {
 						if (liveSha !== null) {
 							Logger.warn('dxvk: d3d9.dll failed verification; replacing');
 							await fs.remove(live).catch(() => undefined);
 						}
 						const offSha = await fileSha256(off);
-						if (offSha === DXVK_DLL_SHA256) {
+						if (offSha === targetHash) {
 							await fs
 								.move(off, live)
 								.then(() => Logger.info('dxvk enabled: restored d3d9.dll'))
@@ -337,10 +385,11 @@ class ModsClass extends Observable<ModsStatus> {
 							if (offSha !== null)
 								await fs.remove(off).catch(() => undefined);
 							dxvkRepair = true;
+							dxvkRepairChoice = dxvkChoice ?? undefined;
 						}
 					}
 				}
-				const files = modTargetFiles(m);
+				const files = modTargetFiles(effective);
 				const present =
 					!!clientDir &&
 					files.length > 0 &&
@@ -349,19 +398,19 @@ class ModsClass extends Observable<ModsStatus> {
 							files.map(rel => fs.pathExists(path.join(clientDir, rel)))
 						)
 					).every(Boolean);
-				installedVersion = enabled ? m.version : undefined;
-				if (enabled && files.length > 0 && !present) missing.push(m.name);
+				installedVersion = enabled ? effective.version : undefined;
+				if (enabled && files.length > 0 && !present) missing.push(effective.name);
 				// only point dlls.txt at a file actually on disk
-				if (clientDir && m.registerInDllsTxt)
+				if (clientDir && effective.registerInDllsTxt)
 					await (present && enabled
-						? addDll(clientDir, m.registerInDllsTxt)
-						: removeDll(clientDir, m.registerInDllsTxt)
+						? addDll(clientDir, effective.registerInDllsTxt)
+						: removeDll(clientDir, effective.registerInDllsTxt)
 					).catch(e => Logger.warn(`dlls.txt update failed for ${m.id}`, e));
 				this.#patchRow(m.id, {
 					installedVersion,
-					latestVersion: m.version,
+					latestVersion: effective.version,
 					enabled,
-					ignoreUpdates: true
+					ignoreUpdates: !!state?.ignoreUpdates
 				});
 				continue;
 			}
@@ -378,31 +427,30 @@ class ModsClass extends Observable<ModsStatus> {
 						enabled: state?.enabled ?? false,
 						installedVersion: undefined,
 						installedFiles: [],
-						ignoreUpdates: state?.ignoreUpdates ?? false
+						ignoreUpdates: state?.ignoreUpdates ?? false,
+						dxvkVariant: state?.dxvkVariant
 					});
 				}
 			}
 
-			if (clientDir && m.registerInDllsTxt)
+			if (clientDir && effective.registerInDllsTxt)
 				await (installedVersion
-					? addDll(clientDir, m.registerInDllsTxt)
-					: removeDll(clientDir, m.registerInDllsTxt)
+					? addDll(clientDir, effective.registerInDllsTxt)
+					: removeDll(clientDir, effective.registerInDllsTxt)
 				).catch(() => {});
 
 			this.#patchRow(m.id, {
 				installedVersion,
-				latestVersion: m.version,
-				enabled: !!state?.enabled,
+				latestVersion: effective.version,
+				enabled: dxvkChoice === 'none' ? false : !!state?.enabled,
 				ignoreUpdates: !!state?.ignoreUpdates
 			});
 		}
 
-		if (dxvkRepair) {
-			const dm = getMod('dxvk');
-			if (dm)
-				await this.#install(dm).catch(e =>
-					Logger.warn('dxvk repair download failed', e)
-				);
+		if (dxvkRepair && dxvkRepairChoice) {
+			await this.#install(dxvkModEntry(dxvkRepairChoice)).catch(e =>
+				Logger.warn('dxvk repair download failed', e)
+			);
 		}
 
 		this._value = {
@@ -469,7 +517,8 @@ class ModsClass extends Observable<ModsStatus> {
 			enabled,
 			installedVersion: cur?.installedVersion,
 			installedFiles: cur?.installedFiles ?? [],
-			ignoreUpdates: cur?.ignoreUpdates ?? false
+			ignoreUpdates: cur?.ignoreUpdates ?? false,
+			dxvkVariant: cur?.dxvkVariant
 		});
 		this.#patchRow(id, { enabled });
 	}
@@ -480,9 +529,35 @@ class ModsClass extends Observable<ModsStatus> {
 			enabled: cur?.enabled ?? false,
 			installedVersion: cur?.installedVersion,
 			installedFiles: cur?.installedFiles ?? [],
-			ignoreUpdates: ignore
+			ignoreUpdates: ignore,
+			dxvkVariant: cur?.dxvkVariant
 		});
 		this.#patchRow(id, { ignoreUpdates: ignore });
+	}
+
+	dxvkStatus(): {
+		choice: 'auto' | DxvkVariantId | 'none';
+		recommended: DxvkVariantId | 'none';
+		effective: DxvkVariantId | 'none';
+	} {
+		const choice = Preferences.data?.mods?.dxvk?.dxvkVariant ?? 'auto';
+		const recommended = recommendDxvkVariant(
+			Preferences.data?.vulkan ?? null,
+			Preferences.data?.hardware?.gpuModel ?? null
+		);
+		return { choice, recommended, effective: effectiveDxvkChoice() };
+	}
+
+	async setDxvkVariant(choice: 'auto' | DxvkVariantId | 'none') {
+		const cur = Preferences.data?.mods?.dxvk;
+		await this.#savePref('dxvk', {
+			enabled: cur?.enabled ?? false,
+			installedVersion: cur?.installedVersion,
+			installedFiles: cur?.installedFiles ?? [],
+			ignoreUpdates: cur?.ignoreUpdates ?? false,
+			dxvkVariant: choice
+		});
+		await this.verify();
 	}
 
 	async applyAll(opts: { repairOnly?: boolean } = {}) {
@@ -540,8 +615,9 @@ class ModsClass extends Observable<ModsStatus> {
 
 		const failures = new Map<ModId, string>();
 		for (const row of queue) {
-			const m = getMod(row.id);
-			if (!m) continue;
+			const base = getMod(row.id);
+			if (!base) continue;
+			const m = resolveModEntry(base);
 
 			const wantInstalled = row.enabled;
 			const isInstalled = !!row.installedVersion;
@@ -576,11 +652,21 @@ class ModsClass extends Observable<ModsStatus> {
 	async #install(m: ModEntry) {
 		const clientDir = Preferences.data?.clientDir;
 		// dxvk: restoring a parked copy is the only enable path that works in
-		// torrent mode (nothing is fetched there, the sync ignores d3d9.dll)
+		// torrent mode (nothing is fetched there, the sync ignores d3d9.dll).
+		// Only trust the parked file if its hash matches the variant we're
+		// installing — a stale copy from a previous variant falls through to
+		// a fresh download instead.
 		if (m.id === 'dxvk' && clientDir) {
+			const variant = dxvkVariantFromVersion(m.version);
+			const wantSha = variant ? DXVK_DLL_SHA256[variant] : null;
 			const live = path.join(clientDir, 'd3d9.dll');
 			const off = path.join(clientDir, 'd3d9.dll.off');
-			if (!(await fs.pathExists(live)) && (await fs.pathExists(off))) {
+			if (
+				wantSha &&
+				!(await fs.pathExists(live)) &&
+				(await fs.pathExists(off)) &&
+				(await fileSha256(off)) === wantSha
+			) {
 				Logger.info('Restoring parked d3d9.dll for dxvk');
 				await fs.move(off, live);
 				await this.#savePref(m.id, {
@@ -588,7 +674,8 @@ class ModsClass extends Observable<ModsStatus> {
 					installedVersion: m.version,
 					installedFiles: ['d3d9.dll'],
 					ignoreUpdates:
-						Preferences.data?.mods?.[m.id]?.ignoreUpdates ?? false
+						Preferences.data?.mods?.[m.id]?.ignoreUpdates ?? false,
+					dxvkVariant: Preferences.data?.mods?.[m.id]?.dxvkVariant
 				});
 				this.#patchRow(m.id, {
 					state: 'idle',
@@ -676,7 +763,8 @@ class ModsClass extends Observable<ModsStatus> {
 			enabled: true,
 			installedVersion: m.version,
 			installedFiles: written,
-			ignoreUpdates: Preferences.data?.mods?.[m.id]?.ignoreUpdates ?? false
+			ignoreUpdates: Preferences.data?.mods?.[m.id]?.ignoreUpdates ?? false,
+			dxvkVariant: Preferences.data?.mods?.[m.id]?.dxvkVariant
 		});
 
 		this.#patchRow(m.id, {
@@ -725,7 +813,8 @@ class ModsClass extends Observable<ModsStatus> {
 			enabled: cur?.enabled ?? false,
 			installedVersion: undefined,
 			installedFiles: [],
-			ignoreUpdates: cur?.ignoreUpdates ?? false
+			ignoreUpdates: cur?.ignoreUpdates ?? false,
+			dxvkVariant: cur?.dxvkVariant
 		});
 
 		this.#patchRow(m.id, { state: 'idle', installedVersion: undefined });
