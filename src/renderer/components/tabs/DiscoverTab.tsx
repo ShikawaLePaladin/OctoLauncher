@@ -14,16 +14,20 @@ import IconSpinner from '../styled/IconSpinner';
 type SortMode = 'popular' | 'recent' | 'name';
 type CategoryFilter = AddonCategory | 'all';
 
-const timeAgo = (iso?: string | null, locale = 'en') => {
+type TimeAgo =
+	| { key: 'discover.timeAgo.today' }
+	| { key: 'discover.timeAgo.days' | 'discover.timeAgo.months' | 'discover.timeAgo.years'; n: number };
+
+const timeAgo = (iso?: string | null): TimeAgo | null => {
 	if (!iso) return null;
 	const ms = Date.now() - new Date(iso).getTime();
 	if (!Number.isFinite(ms)) return null;
 	const days = Math.floor(ms / (1000 * 60 * 60 * 24));
-	if (days < 1) return 'today';
-	if (days < 30) return `${days}d ago`;
+	if (days < 1) return { key: 'discover.timeAgo.today' };
+	if (days < 30) return { key: 'discover.timeAgo.days', n: days };
 	const months = Math.floor(days / 30);
-	if (months < 12) return `${months}mo ago`;
-	return `${Math.floor(months / 12)}y ago`;
+	if (months < 12) return { key: 'discover.timeAgo.months', n: months };
+	return { key: 'discover.timeAgo.years', n: Math.floor(months / 12) };
 };
 
 const DiscoverTab = () => {
@@ -166,7 +170,12 @@ const DiscoverTab = () => {
 									)}
 									{ago && (
 										<span className="s1 text-blueGray/60">
-											{t('discover.updated', { ago })}
+											{t('discover.updated', {
+												ago: t(
+													ago.key,
+													'n' in ago ? { n: ago.n } : undefined
+												)
+											})}
 										</span>
 									)}
 								</div>

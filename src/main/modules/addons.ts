@@ -411,12 +411,22 @@ class AddonsClass extends Observable<AddonsStatus> {
 					.then(r => r[0].oid)
 					.catch(() => null);
 
+				const branchTipCommit = () =>
+					git
+						.log({ fs, dir, ref: `${remote.remote}/${branch}`, depth: 1 })
+						.then(r => r[0].oid)
+						.catch(() => null);
+				// a pinned ref can briefly fail to resolve right after a repoint
+				// (the new remote's tags/refs aren't the ones the pin was cut
+				// against) — fall back to the branch tip instead of treating
+				// remote state as fully unknown, which would flag an otherwise
+				// current addon as outOfDate with nothing for the player to do
+				// about it.
 				const remoteCommit = avail?.ref
-					? await git.resolveRef({ fs, dir, ref: avail.ref }).catch(() => null)
-					: await git
-							.log({ fs, dir, ref: `${remote.remote}/${branch}`, depth: 1 })
-							.then(r => r[0].oid)
-							.catch(() => null);
+					? await git
+							.resolveRef({ fs, dir, ref: avail.ref })
+							.catch(() => branchTipCommit())
+					: await branchTipCommit();
 
 				const status = await git.statusMatrix({ fs, dir });
 				// row = [filepath, headStatus, workdirStatus, stageStatus]; a
