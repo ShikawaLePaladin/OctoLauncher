@@ -1,4 +1,5 @@
 import path from 'path';
+import os from 'os';
 import { spawn } from 'child_process';
 
 import fs from 'fs-extra';
@@ -7,7 +8,7 @@ import Logger from 'electron-log/main';
 import Preferences from '~main/modules/preferences';
 import Mods from '~main/modules/mods';
 import { mainWindow } from '~main/index';
-import Updater, { isGameRunning } from '~main/modules/updater';
+import Updater, { isGameRunning, findProcessPid } from '~main/modules/updater';
 import {
 	patchConfig,
 	patchExecutable,
@@ -38,6 +39,19 @@ const chainloaderNeeded = async (clientDir: string): Promise<boolean> => {
 type StartResult = { ok: boolean; error?: string };
 
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+// the 1.12 client's main loop is single-threaded; on a busy modern CPU the OS
+// scheduler can starve it behind background processes, showing up as
+// intermittent stutter. "Above normal" nudges it ahead without the
+// starve-everything-else risk of "high"/"realtime".
+const raiseGamePriority = (pid?: number) => {
+	if (!pid) return;
+	try {
+		os.setPriority(pid, os.constants.priority.PRIORITY_ABOVE_NORMAL);
+	} catch (e) {
+		Logger.warn(`Could not raise priority for pid ${pid}`, e);
+	}
+};
 
 let starting = false;
 
@@ -133,6 +147,24 @@ export const launcherRouter = createTRPCRouter({
 			}
 
 			child.on('error', e => Logger.error('Game process error', e));
+
+			// direct spawn: `child` IS WoW.exe. Via the loader, `child` is
+			// VanillaFixes.exe instead — its own priority doesn't matter, so
+			// poll for the real WoW.exe pid once it appears. Runs regardless
+			// of minimizeToTrayOnPlay, unlike the tray-restore loop below.
+			if (useLoader) {
+				void (async () => {
+					const started = Date.now();
+					let pid: number | null = null;
+					while (Date.now() - started < 30_000 && !pid) {
+						pid = await findProcessPid('WoW.exe');
+						if (!pid) await delay(1000);
+					}
+					raiseGamePriority(pid ?? undefined);
+				})();
+			} else {
+				raiseGamePriority(child.pid);
+			}
 
 			if (!minimizeToTrayOnPlay) {
 				mainWindow?.close();

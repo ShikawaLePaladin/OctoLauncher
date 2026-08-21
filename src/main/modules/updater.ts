@@ -105,6 +105,20 @@ export const isGameRunning = (executablePath: string) =>
 		  })
 		: false;
 
+// tasklist's CSV columns are: "Image Name","PID","Session Name","Session#","Mem Usage"
+export const findProcessPid = (exeName: string): Promise<number | null> =>
+	new Promise(resolve => {
+		if (os.platform() !== 'win32') return resolve(null);
+		exec(
+			`tasklist /FI "IMAGENAME eq ${exeName}" /FO CSV /NH`,
+			(error, stdout) => {
+				if (error) return resolve(null);
+				const match = stdout.match(/^"[^"]*","(\d+)"/m);
+				resolve(match ? Number(match[1]) : null);
+			}
+		);
+	});
+
 type UpdaterState =
 	| 'verifying'
 	| 'serverUnreachable'
