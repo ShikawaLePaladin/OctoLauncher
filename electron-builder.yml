@@ -14,7 +14,6 @@ files:
   - '!*.tsbuildinfo'
   - '!{tailwind.config.ts,postcss.config.cjs}'
   - '!dist*/**'
-  - '!out/main/chunks/**'
   - '!{.gitea,.github}/**'
   - '!Tools/**'
   - '!**/builder-debug.yml'
