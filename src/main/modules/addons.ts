@@ -72,6 +72,23 @@ const isAllowedGitUrl = (url: string) => {
 	}
 };
 
+// isomorphic-git throws typed errors (HttpError, NotFoundError, ...) with a
+// string `code` for conditions it understands — auth failures, missing
+// refs, network errors. A caught error WITHOUT that shape (a bare
+// TypeError/RangeError from deep inside its packfile reader, which is what a
+// corrupted local .git actually produces) means the local repo itself is
+// broken, not the remote — that's the one case a fresh re-clone can fix.
+const isLocalCorruption = (e: unknown): boolean =>
+	e instanceof Error && typeof (e as { code?: unknown }).code !== 'string';
+
+const errorDetail = (e: unknown): string => {
+	if (!(e instanceof Error)) return String(e);
+	const response = (e as { data?: { response?: unknown } }).data?.response;
+	return typeof response === 'string' && response
+		? `${e.message}: ${response}`
+		: e.message;
+};
+
 const fetchAddons = async () => {
 	try {
 		const response = await fetch(
@@ -164,6 +181,23 @@ class AddonsClass extends Observable<AddonsStatus> {
 		}
 	}
 
+	// wipes the local folder and re-clones from scratch. Only called for
+	// errors isLocalCorruption() has already identified as "the repo on disk
+	// is broken", so losing whatever is currently there is safe — a fresh
+	// clone is strictly better than a folder isomorphic-git can't read.
+	async #repair(folder: string, dir: string, url: string, ref?: string) {
+		Logger.warn(`Addon "${folder}": local repo unreadable, re-cloning`);
+		// gitClone.ts already backs `dir` up to a .bak folder and restores it
+		// if the fresh clone fails — deleting it here first would remove that
+		// safety net and leave the addon folder empty on any clone failure.
+		await runWorker(gitClone, { dir, url, ref }, {
+			onProgress: this.#onProgress(folder, {
+				status: 'downloading',
+				folder
+			})
+		});
+	}
+
 	async verify() {
 		if (this.status.state !== 'done') return;
 
@@ -205,6 +239,30 @@ class AddonsClass extends Observable<AddonsStatus> {
 			const dir = path.join(addonsPath, folder);
 
 			if (!fs.existsSync(path.join(dir, `${folder}.toc`))) {
+				// a .git folder with no .toc means a previous clone/repair was
+				// interrupted, not a manually-dropped non-git addon — retry it
+				// instead of leaving it stuck on "invalid" forever.
+				const avail = remoteAddons.find(a => a.name === folder);
+				if (avail?.git && fs.existsSync(path.join(dir, '.git'))) {
+					try {
+						await this.#repair(folder, dir, avail.git, avail.ref);
+						const repairedToc = readTocData(
+							await fs.readFile(path.join(dir, `${folder}.toc`), 'utf-8')
+						);
+						this.#setAddon(folder, {
+							git: avail.git,
+							status: 'outOfDate',
+							error: 'Re-installed after an interrupted download',
+							toc: repairedToc,
+							ref: avail.ref,
+							folder
+						});
+						Logger.info(`Addon "${folder}" re-cloned successfully`);
+						return;
+					} catch (repairError) {
+						Logger.error(`Addon "${folder}" repair failed`, repairError);
+					}
+				}
 				this.#setAddon(folder, {
 					status: 'invalid',
 					error: 'Missing .toc file',
@@ -258,9 +316,18 @@ class AddonsClass extends Observable<AddonsStatus> {
 							.catch(() => null);
 
 				const status = await git.statusMatrix({ fs, dir });
-				const hasChanges = status.some(
-					([_, HEAD, index, workdir]) => HEAD !== index || index !== workdir
-				);
+				// row = [filepath, headStatus, workdirStatus, stageStatus]; a
+				// file absent from both HEAD and the index (untracked, never
+				// committed) can't mean "this addon fell behind" — it's a
+				// shared library, a per-player config file, or similar,
+				// bundled alongside the addon without being part of its git
+				// history. Only count real drift on files git actually
+				// tracks.
+				const changedFiles = status.filter(([, head, workdir, stage]) => {
+					if (head === 0 && stage === 0) return false;
+					return head !== workdir || workdir !== stage;
+				});
+				const hasChanges = changedFiles.length > 0;
 
 				const isUpToDate =
 					!hasChanges && remoteCommit && localCommit === remoteCommit;
@@ -281,10 +348,30 @@ class AddonsClass extends Observable<AddonsStatus> {
 						: `Addon "${folder}" has an update available`
 				);
 			} catch (e) {
+				if (isLocalCorruption(e)) {
+					try {
+						await this.#repair(folder, dir, remote.url, avail?.ref);
+						const repairedToc = readTocData(
+							await fs.readFile(path.join(dir, `${folder}.toc`), 'utf-8')
+						);
+						this.#setAddon(folder, {
+							git: remote.url,
+							status: 'outOfDate',
+							error: 'Re-installed after a local error',
+							toc: repairedToc,
+							ref: avail?.ref,
+							folder
+						});
+						Logger.info(`Addon "${folder}" re-cloned successfully`);
+						return;
+					} catch (repairError) {
+						Logger.error(`Addon "${folder}" repair failed`, repairError);
+					}
+				}
 				this.#setAddon(folder, {
 					git: remote.url,
 					status: 'invalid',
-					error: 'Failed to verify',
+					error: errorDetail(e),
 					toc,
 					folder
 				});
@@ -368,10 +455,28 @@ class AddonsClass extends Observable<AddonsStatus> {
 				this.#setAddon(folder, { ...data, toc, status: 'upToDate' });
 				Logger.log(`Updated addon "${folder}"`);
 			} catch (e) {
+				if (isLocalCorruption(e) && data.git) {
+					try {
+						await this.#repair(folder, dir, data.git, data.ref);
+						const toc = readTocData(
+							await fs.readFile(path.join(dir, `${folder}.toc`), 'utf-8')
+						);
+						this.#setAddon(folder, {
+							...data,
+							toc,
+							status: 'upToDate',
+							error: 'Re-installed after a local error'
+						});
+						Logger.info(`Addon "${folder}" re-cloned successfully`);
+						continue;
+					} catch (repairError) {
+						Logger.error(`Addon "${folder}" repair failed`, repairError);
+					}
+				}
 				this.#setAddon(folder, {
 					...data,
 					status: 'invalid',
-					error: 'Failed to update'
+					error: errorDetail(e)
 				});
 				Logger.error(`Addon "${folder}" failed to update`, e);
 			}
@@ -431,7 +536,7 @@ class AddonsClass extends Observable<AddonsStatus> {
 			this.#setAddon(data.folder, {
 				...data,
 				status: 'invalid',
-				error: 'Failed to install'
+				error: errorDetail(e)
 			});
 			Logger.error(`Addon "${data.folder}" failed to install`, e);
 		}

@@ -31,6 +31,19 @@ const run = async () => {
 		return;
 	}
 
+	// the remote-tracking ref below may be stale or missing (e.g. the initial
+	// clone tracked a different branch, or the remote's default changed) —
+	// fetch first so checkout always has a ref to resolve, same as the
+	// pinned-ref path above.
+	await git.fetch({
+		fs,
+		http,
+		dir,
+		tags: true,
+		singleBranch: true,
+		ref: branch,
+		onProgress
+	});
 	await git.checkout({
 		fs,
 		dir,
