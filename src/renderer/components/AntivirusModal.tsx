@@ -33,7 +33,13 @@ const AntivirusModal = () => {
 		if (settled) refetchQuarantined();
 	}, [updateState, settled, refetchQuarantined]);
 
-	const addExclusion = api.general.addDefenderExclusion.useMutation();
+	const repair = api.mods.repair.useMutation();
+	const addExclusion = api.general.addDefenderExclusion.useMutation({
+		onSuccess: result => {
+			if (result.ok) repair.mutate();
+		}
+	});
+	const openLink = api.general.openLink.useMutation();
 
 	const blocked = [
 		...new Set([
@@ -98,17 +104,31 @@ const AntivirusModal = () => {
 					</TextButton>
 					<TextButton
 						icon={ShieldAlert}
-						loading={addExclusion.isLoading}
+						loading={addExclusion.isLoading || repair.isLoading}
 						onClick={() => addExclusion.mutate()}
 						className="self-start text-orange"
 					>
 						{t('av.allowThrough')}
 					</TextButton>
 					{addExclusion.data?.ok === true && (
-						<span className="s1 text-warmGreen">{t('av.addedRetry')}</span>
+						<span className="s1 text-warmGreen">
+							{repair.isLoading
+								? t('av.addedRetrying')
+								: repair.isSuccess
+								? t('av.addedDone')
+								: t('av.addedRetry')}
+						</span>
 					)}
 					{addExclusion.data?.ok === false && (
-						<span className="s1 text-orange">{addExclusion.data.error}</span>
+						<>
+							<span className="s1 text-orange">{addExclusion.data.error}</span>
+							<TextButton
+								onClick={() => openLink.mutate('ms-settings:windowsdefender')}
+								className="self-start text-blueGray"
+							>
+								{t('av.openWindowsSecurity')}
+							</TextButton>
+						</>
 					)}
 					<div className="mt-1 flex justify-end">
 						<TextButton onClick={() => setView(null)} className="text-green">

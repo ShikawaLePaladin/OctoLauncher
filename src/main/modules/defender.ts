@@ -61,13 +61,20 @@ export const addDefenderExclusions = async (): Promise<ExclusionResult> => {
 	const outer =
 		'try { Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait ' +
 		"-ArgumentList '-NoProfile','-NonInteractive'," +
-		`'-EncodedCommand','${encoded}' } catch { exit 1 }`;
+		`'-EncodedCommand','${encoded}' } catch { ` +
+		`${write('ELEVATE_FAIL: $($_.Exception.Message)')}; exit 1 }`;
 
 	return new Promise<ExclusionResult>(resolve => {
+		// windowsHide: true here breaks the -Verb RunAs elevation: a process
+		// created with CREATE_NO_WINDOW has no window context for
+		// ShellExecuteEx to anchor the UAC consent prompt to, so Start-Process
+		// throws immediately instead of ever showing it. This one is a rare,
+		// one-shot admin action — a brief PowerShell window flash is an
+		// acceptable trade for the prompt actually appearing.
 		const child = spawn(
 			'powershell.exe',
 			['-NoProfile', '-NonInteractive', '-Command', outer],
-			{ windowsHide: true }
+			{ windowsHide: false }
 		);
 		let stderr = '';
 		child.stderr.on('data', d => (stderr += String(d)));
@@ -104,6 +111,16 @@ export const addDefenderExclusions = async (): Promise<ExclusionResult> => {
 					ok: false,
 					error:
 						'Windows would not add the exclusion. You can add your game folder by hand in Windows Security, under Exclusions.'
+				});
+				return;
+			}
+			if (result?.startsWith('ELEVATE_FAIL:')) {
+				Logger.error(`Defender exclusion elevation failed: ${result}`);
+				resolve({
+					ok: false,
+					error: `Windows would not run the elevated step (${result.slice(
+						'ELEVATE_FAIL:'.length
+					).trim()}). Try again, or add your game folder by hand in Windows Security, under Exclusions.`
 				});
 				return;
 			}
