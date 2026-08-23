@@ -58,37 +58,39 @@ export const MODS: ModEntry[] = [
 	{
 		id: 'dxvk',
 		name: 'dxvk',
-		version: 'v2.7.1-1',
+		version: 'v3.0-1',
 		description: 'Enables Vulkan based rendering mode for better performance.',
 		recommended: true,
 		repoUrl: 'https://gitlab.com/Ph42oN/dxvk-gplasync',
 		source: {
 			kind: 'archive',
-			url: 'https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/releases/dxvk-gplasync-v2.7.1-1.tar.gz?ref_type=heads',
-			pinnedTag: 'v2.7.1-1',
+			url: 'https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/releases/dxvk-gplasync-v3.0-1.tar.gz?ref_type=heads',
+			pinnedTag: 'v3.0-1',
 			format: 'tar.gz',
+			sha256:
+				'f3d13925baa8124a3b0a6b7cd46ff57e9204426beb42f243dcc17267f7c2c0dc',
 			extractMap: {
-				'dxvk-gplasync-v2.7.1-1/x32/d3d9.dll': 'd3d9.dll'
+				'dxvk-gplasync-v3.0-1/x32/d3d9.dll': 'd3d9.dll'
 			}
 		}
 	},
 	{
 		id: 'classicApi',
 		name: 'ClassicAPI',
-		version: 'v1.10.1',
+		version: 'v1.11.1',
 		description:
 			'Backports 200+ later-client Lua API functions many modern addons expect.',
 		repoUrl: 'https://github.com/brues-code/ClassicAPI',
 		requires: ['vanillaFixes'],
 		source: {
 			kind: 'directFile',
-			url: 'https://github.com/brues-code/ClassicAPI/releases/download/v1.10.1/ClassicAPI.dll',
+			url: 'https://github.com/brues-code/ClassicAPI/releases/download/v1.11.1/ClassicAPI.dll',
 			apiUrl: 'https://api.github.com/repos/brues-code/ClassicAPI/releases/latest',
 			parseLatest: 'githubRelease',
-			pinnedTag: 'v1.10.1',
+			pinnedTag: 'v1.11.1',
 			assetName: 'ClassicAPI.dll',
 			sha256:
-				'bd36ab80733ef86baf91fdb35ad53a36993ca05e6d001c528a1079ddc5832209'
+				'915f8ccec6adac9b0d875232d8e12759f2a23d5f6088dd465c46e5ef33a8c351'
 		},
 		registerInDllsTxt: 'ClassicAPI.dll'
 	},
@@ -249,17 +251,17 @@ export type DxvkVariant = {
 export const DXVK_VARIANTS: Record<DxvkVariantId, DxvkVariant> = {
 	gplasync: {
 		label: 'DXVK (gplasync)',
-		version: 'v2.7.1-1',
+		version: 'v3.0-1',
 		note: 'For recent GPUs with a Vulkan 1.3 driver.',
 		source: {
 			kind: 'archive',
-			url: 'https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/releases/dxvk-gplasync-v2.7.1-1.tar.gz?ref_type=heads',
-			pinnedTag: 'v2.7.1-1',
+			url: 'https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/releases/dxvk-gplasync-v3.0-1.tar.gz?ref_type=heads',
+			pinnedTag: 'v3.0-1',
 			format: 'tar.gz',
 			sha256:
-				'590050b88be7b156cf641abe762e1ad47ebbe828f7f0edb2970aa4716ee3af6d',
+				'f3d13925baa8124a3b0a6b7cd46ff57e9204426beb42f243dcc17267f7c2c0dc',
 			extractMap: {
-				'dxvk-gplasync-v2.7.1-1/x32/d3d9.dll': 'd3d9.dll'
+				'dxvk-gplasync-v3.0-1/x32/d3d9.dll': 'd3d9.dll'
 			}
 		}
 	},
@@ -286,9 +288,19 @@ export const DXVK_VARIANTS: Record<DxvkVariantId, DxvkVariant> = {
 // be parked/restored instead of mistaken for a foreign file.
 export const DXVK_DLL_SHA256: Record<DxvkVariantId, string> = {
 	gplasync:
-		'a2cd6841e102f37189527c118ec416fa5071ac4d3120762973d9a0c6c5fd067e',
+		'6dd64b6f7a40515f1e48fc505f61b36ac6ff3440e9035b0a9b690f22149994da',
 	legacy: 'b6cfa2cd62af73b80d461085d126004b0e22dd3944c9246c58e3a68e747b56b6'
 };
+
+// hashes DXVK_DLL_SHA256 pointed to before a version bump — a player who
+// already has an older pin's file on disk must still have it recognized as
+// "launcher-managed dxvk" (park/restore) rather than mistaken for a foreign
+// file and deleted, even though it's no longer the hash a fresh install
+// would produce.
+export const LEGACY_DXVK_DLL_SHA256: string[] = [
+	// gplasync v2.7.1-1, replaced by v3.0-1
+	'a2cd6841e102f37189527c118ec416fa5071ac4d3120762973d9a0c6c5fd067e'
+];
 
 // fallback for profiles with no stored state: enabled, so legacy installs
 // keep their mods; fresh installs seed explicit off rows instead (do NOT

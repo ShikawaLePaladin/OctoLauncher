@@ -12,6 +12,7 @@ import {
 	DEFAULT_ENABLED_MODS,
 	DXVK_VARIANTS,
 	DXVK_DLL_SHA256,
+	LEGACY_DXVK_DLL_SHA256,
 	type DxvkVariantId,
 	type ModEntry,
 	type ModId,
@@ -77,7 +78,9 @@ const fileSha256 = async (p: string): Promise<string | null> => {
 // recognize a launcher-installed dxvk file so it can be parked/restored
 // instead of being mistaken for a foreign file and deleted)
 const isKnownDxvkDll = (sha: string | null): boolean =>
-	sha !== null && (Object.values(DXVK_DLL_SHA256) as string[]).includes(sha);
+	sha !== null &&
+	((Object.values(DXVK_DLL_SHA256) as string[]).includes(sha) ||
+		LEGACY_DXVK_DLL_SHA256.includes(sha));
 
 // player's stored choice, resolving 'auto' against detected hardware; 'none'
 // means dxvk must not be installed regardless of the mod's enabled toggle
