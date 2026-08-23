@@ -10,6 +10,7 @@ import { forumRouter } from './routers/forum';
 import { modsRouter } from './routers/mods';
 import { selfUpdaterRouter } from './routers/selfUpdater';
 import { discoverRouter } from './routers/discover';
+import { visualPacksRouter } from './routers/visualPacks';
 
 export const appRouter = createTRPCRouter({
 	addons: addonsRouter,
@@ -22,7 +23,8 @@ export const appRouter = createTRPCRouter({
 	forum: forumRouter,
 	mods: modsRouter,
 	selfUpdater: selfUpdaterRouter,
-	discover: discoverRouter
+	discover: discoverRouter,
+	visualPacks: visualPacksRouter
 });
 
 export type AppRouter = typeof appRouter;

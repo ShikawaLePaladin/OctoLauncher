@@ -14,6 +14,7 @@ import Preferences from './modules/preferences';
 import Updater from './modules/updater';
 import Addons from './modules/addons';
 import Mods from './modules/mods';
+import VisualPacks from './modules/visualPacks';
 import { initSelfUpdater } from './modules/selfUpdater';
 import {
 	detectHardware,
@@ -154,6 +155,7 @@ if (!gotSingleInstanceLock) {
 		Addons.verify();
 		Updater.verify();
 		Mods.verify();
+		VisualPacks.refresh();
 		initSelfUpdater();
 
 		void (async () => {

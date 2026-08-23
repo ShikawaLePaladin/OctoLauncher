@@ -43,6 +43,17 @@ export const ModStateSchema = z.object({
 });
 export type ModState = z.infer<typeof ModStateSchema>;
 
+// what the launcher itself wrote to Data/ for one visual pack — used to
+// recognize "this is our file" before ever touching it again (repointing a
+// variant, or uninstalling), and to refuse if something else now occupies
+// that path.
+export const VisualPackStateSchema = z.object({
+	variant: z.string().optional(),
+	filename: z.string(),
+	size: z.number()
+});
+export type VisualPackState = z.infer<typeof VisualPackStateSchema>;
+
 export const HardwareInfoSchema = z.object({
 	totalRamMb: z.number(),
 	cpuCores: z.number(),
@@ -101,6 +112,7 @@ export const PreferencesSchema = z.object({
 	windowMaximized: z.boolean().optional(),
 	config: ConfigWtfSchema.default({}),
 	mods: z.record(ModStateSchema).default({}),
+	visualPacks: z.record(VisualPackStateSchema).default({}),
 	hardware: HardwareInfoSchema.optional(),
 	farClipUserSet: z.boolean().optional(),
 	vulkan: VulkanInfoSchema.optional(),

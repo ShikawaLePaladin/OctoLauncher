@@ -7,6 +7,10 @@ export {
 	type CustomMod
 } from './modules/mods';
 export {
+	type VisualPacksStatus,
+	type VisualPackRowStatus
+} from './modules/visualPacks';
+export {
 	type NewsItem,
 	type NewsFeed,
 	type ForumAnnouncement
