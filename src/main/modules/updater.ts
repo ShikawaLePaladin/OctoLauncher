@@ -419,16 +419,19 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 				return;
 			}
 			const isUpdate = await fs.pathExists(path.join(clientPath, 'WoW.exe'));
+			// NOT persisted here: committing activeTorrentHash/activeClientDir
+			// before syncClient() below has actually succeeded would make a
+			// failed attempt look "already handled" to the very next retry —
+			// staleContext would read false, skipping both the resume-state
+			// clear and dropMismatched cleanup, so a file whose expected size
+			// changed (a stale local copy an OctoWoW content update outgrew)
+			// would keep erroring out of aria2 forever instead of self-healing
+			// on the next try. Committed alongside syncedTorrentHash once
+			// torrentTreeIntact() below actually confirms success.
 			const staleContext =
 				Preferences.data.activeTorrentHash !== sha ||
 				Preferences.data.activeClientDir !== clientPath;
-			if (staleContext) {
-				await clearTorrentResumeState();
-				Preferences.data = {
-					activeTorrentHash: sha,
-					activeClientDir: clientPath
-				};
-			}
+			if (staleContext) await clearTorrentResumeState();
 			const selection = clean
 				? null
 				: await torrentDownloadSelection(clientPath, url, staleContext);
@@ -495,6 +498,8 @@ class UpdaterClass extends Observable<UpdaterStatus> {
 			await this.#reconcileRaidVisuals(clientPath);
 			Preferences.data = {
 				syncedTorrentHash: sha,
+				activeTorrentHash: sha,
+				activeClientDir: clientPath,
 				version: await getClientVersion()
 			};
 			this.status = { state: 'upToDate', progress: 1 };
