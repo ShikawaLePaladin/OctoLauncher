@@ -17,6 +17,8 @@ const enUS: Dict = {
 	'modsPlus.serverSpecificWarning': 'Turtle WoW-tuned — may mismatch OctoWoW-specific content',
 	'modsPlus.stabilityWarning':
 		"Installing several packs together has been observed to crash the game on some setups, even combinations this page suggests as a set. Install one pack, launch the game to confirm it's stable, then add the next — don't install everything at once.",
+	'modsPlus.crashWarning':
+		"Confirmed to crash the game on its own during testing — not just in combination with other packs. Not recommended until this is investigated further.",
 	'modsPlus.requires': 'Requires: {packs}',
 	'modsPlus.install': 'Install',
 	'modsPlus.uninstall': 'Uninstall',

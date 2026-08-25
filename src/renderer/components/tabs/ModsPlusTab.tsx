@@ -82,7 +82,9 @@ const PackCard = ({
 		<div
 			className={cls(
 				'flex flex-col gap-2 border p-3',
-				pack.serverSpecific
+				pack.crashesGame
+					? 'border-red/50 bg-red/5'
+					: pack.serverSpecific
 					? 'border-orange/40 bg-orange/5'
 					: 'border-blueGray/20 bg-darkerGray/60'
 			)}
@@ -100,6 +102,12 @@ const PackCard = ({
 					className="!p-0 text-blueGray/60 hocus:text-pink"
 				/>
 			</div>
+			{pack.crashesGame && (
+				<p className="s1 flex items-center gap-1 font-bold text-red">
+					<AlertTriangle size={12} className="shrink-0" />
+					{t('modsPlus.crashWarning')}
+				</p>
+			)}
 			{pack.serverSpecific && (
 				<p className="s1 flex items-center gap-1 text-orange">
 					<AlertTriangle size={12} className="shrink-0" />
@@ -152,7 +160,7 @@ const PackCard = ({
 							onClick={() => onInstall()}
 							disabled={missingDeps.length > 0 || busy}
 							loading={busy}
-							className="text-warmGreen"
+							className={pack.crashesGame ? 'text-red' : 'text-warmGreen'}
 						>
 							{t('modsPlus.install')}
 						</TextButton>

@@ -67,6 +67,10 @@ export type VisualPackEntry = {
 	description: string;
 	version: string;
 	serverSpecific?: boolean;
+	// set only once a pack has been directly reproduced to crash the client
+	// (not a compatibility guess) — see the crashesGame comment on Patch-C
+	// below for how this one was isolated.
+	crashesGame?: boolean;
 	requires?: VisualPackId[];
 	// installed/removed as one unit — the source explicitly says these
 	// don't work correctly installed only partially
@@ -104,6 +108,15 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		icon: '🐉',
 		description: 'Creatures and related assets for the classic client.',
 		version: 'v5.5.1',
+		// reproduced directly: with only this pack's .mpq present (and
+		// loading confirmed via a file-lock check), the client hits the same
+		// access violation every time, usually within a couple of minutes.
+		// Every other pack tested alone (A, G) ran crash-free for 9-16
+		// minutes; every combination that included this one crashed with
+		// the identical faulting address. Isolated 2026-08-25, not yet
+		// root-caused (likely a creature asset OctoWoW's own content
+		// indexes differently than stock/Turtle).
+		crashesGame: true,
 		file: { url: `${CDN}/patch-C.mpq`, size: 2083036611, filename: 'patch-C.mpq' }
 	},
 	{
