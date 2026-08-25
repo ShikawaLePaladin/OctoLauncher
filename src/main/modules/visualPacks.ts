@@ -144,10 +144,15 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 				(p.file ? [p.file] : p.variants?.map(v => v.file) ?? []).map(f => `${f.filename}.tmp`)
 			)
 		);
+		// also sweeps .tmp leftovers under the pre-migration naming scheme
+		// (patch-reforged-<letter>.mpq.tmp) — narrow and finite now that
+		// scheme is fully retired, so it can't accidentally match anything
+		// unrelated the way a looser pattern could.
+		const legacyTmp = /^patch-reforged-[A-Z]\.mpq\.tmp$/;
 		const names = await fs.readdir(dataDir).catch(() => []);
 		await Promise.all(
 			names
-				.filter(n => ours.has(n))
+				.filter(n => ours.has(n) || legacyTmp.test(n))
 				.map(n =>
 					fs
 						.remove(path.join(dataDir, n))
@@ -176,35 +181,45 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 				pack.file ?? pack.variants?.find(v => v.id === state.variant)?.file;
 			if (!expected || state.filename === expected.filename) continue;
 
-			const oldLive = path.join(dataDir, state.filename);
-			const oldParked = path.join(dataDir, parkedSuffix(state.filename));
-			const fromPath = (await isOurFile(oldLive, state.size))
-				? oldLive
-				: (await isOurFile(oldParked, state.size))
-				? oldParked
-				: null;
-			// nothing of ours left under the old name — the normal
-			// stale-record cleanup further down handles this case
-			if (!fromPath) continue;
+			// a transient fs error here (lock, permission, a concurrent
+			// setEnabled/uninstall on the same pack) must not abort the
+			// whole method — refresh() awaits this without a try/catch of
+			// its own, and never publishing a fresh status would leave
+			// every pack looking "not installed" for the rest of the
+			// session
+			try {
+				const oldLive = path.join(dataDir, state.filename);
+				const oldParked = path.join(dataDir, parkedSuffix(state.filename));
+				const fromPath = (await isOurFile(oldLive, state.size))
+					? oldLive
+					: (await isOurFile(oldParked, state.size))
+					? oldParked
+					: null;
+				// nothing of ours left under the old name — the normal
+				// stale-record cleanup further down handles this case
+				if (!fromPath) continue;
 
-			const toPath = path.join(
-				dataDir,
-				fromPath === oldLive ? expected.filename : parkedSuffix(expected.filename)
-			);
-			if ((await fs.pathExists(toPath)) && !(await isOurFile(toPath, state.size))) {
-				Logger.warn(
-					`Visual pack "${pack.id}": can't migrate to ${expected.filename}, an unrecognized file already exists there.`
+				const toPath = path.join(
+					dataDir,
+					fromPath === oldLive ? expected.filename : parkedSuffix(expected.filename)
 				);
-				continue;
-			}
-			await fs.move(fromPath, toPath, { overwrite: true });
-			Preferences.data = {
-				visualPacks: {
-					...Preferences.data.visualPacks,
-					[pack.id]: { ...state, filename: expected.filename }
+				if ((await fs.pathExists(toPath)) && !(await isOurFile(toPath, state.size))) {
+					Logger.warn(
+						`Visual pack "${pack.id}": can't migrate to ${expected.filename}, an unrecognized file already exists there.`
+					);
+					continue;
 				}
-			};
-			Logger.info(`Visual pack "${pack.id}": migrated ${state.filename} -> ${expected.filename}`);
+				await fs.move(fromPath, toPath, { overwrite: true });
+				Preferences.data = {
+					visualPacks: {
+						...Preferences.data.visualPacks,
+						[pack.id]: { ...state, filename: expected.filename }
+					}
+				};
+				Logger.info(`Visual pack "${pack.id}": migrated ${state.filename} -> ${expected.filename}`);
+			} catch (e) {
+				Logger.warn(`Visual pack "${pack.id}": legacy-filename migration failed`, e);
+			}
 		}
 	}
 
@@ -235,34 +250,42 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 				continue;
 			}
 
-			const livePath = path.join(dataDir, state.filename);
-			const parkedPath = path.join(dataDir, parkedSuffix(state.filename));
-			const target = (await isOurFile(livePath, state.size))
-				? livePath
-				: (await isOurFile(parkedPath, state.size))
-				? parkedPath
-				: null;
-			if (!target) continue; // nothing of ours here — the stale-record cleanup below handles it
+			// a transient fs error (lock, permission, the file getting
+			// renamed by a concurrent setEnabled/uninstall mid-hash) must
+			// not abort the whole method — see the matching note in
+			// #migrateLegacyFilenames above
+			try {
+				const livePath = path.join(dataDir, state.filename);
+				const parkedPath = path.join(dataDir, parkedSuffix(state.filename));
+				const target = (await isOurFile(livePath, state.size))
+					? livePath
+					: (await isOurFile(parkedPath, state.size))
+					? parkedPath
+					: null;
+				if (!target) continue; // nothing of ours here — the stale-record cleanup below handles it
 
-			const actualHash = await sha256File(target);
-			if (actualHash === expected.sha256) {
-				Preferences.data = {
-					visualPacks: {
-						...Preferences.data.visualPacks,
-						[pack.id]: { ...state, contentVerified: true }
-					}
-				};
-				continue;
+				const actualHash = await sha256File(target);
+				if (actualHash === expected.sha256) {
+					Preferences.data = {
+						visualPacks: {
+							...Preferences.data.visualPacks,
+							[pack.id]: { ...state, contentVerified: true }
+						}
+					};
+					continue;
+				}
+
+				Logger.warn(
+					`Visual pack "${pack.id}": ${path.basename(target)} doesn't match the current release's content (superseded by a fix) — removing so it gets re-downloaded.`
+				);
+				await fs.remove(target).catch(e =>
+					Logger.warn(`Visual pack "${pack.id}": failed to remove stale ${path.basename(target)}`, e)
+				);
+				const { [pack.id]: _removed, ...rest } = Preferences.data.visualPacks ?? {};
+				Preferences.data = { visualPacks: rest };
+			} catch (e) {
+				Logger.warn(`Visual pack "${pack.id}": content verification failed`, e);
 			}
-
-			Logger.warn(
-				`Visual pack "${pack.id}": ${path.basename(target)} doesn't match the current release's content (superseded by a fix) — removing so it gets re-downloaded.`
-			);
-			await fs.remove(target).catch(e =>
-				Logger.warn(`Visual pack "${pack.id}": failed to remove stale ${path.basename(target)}`, e)
-			);
-			const { [pack.id]: _removed, ...rest } = Preferences.data.visualPacks ?? {};
-			Preferences.data = { visualPacks: rest };
 		}
 	}
 
@@ -334,13 +357,27 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 		const destPath = path.join(dataDir, file.filename);
 		const existingState = Preferences.data.visualPacks?.[id];
 
-		// something is already at this path and it isn't a file this feature
-		// installed — refuse rather than risk clobbering an official OctoWoW
-		// content patch that happens to share the name.
-		if (
-			(await fs.pathExists(destPath)) &&
-			!(await isOurFile(destPath, existingState?.size))
-		) {
+		// a previous install (any variant, enabled or currently parked as
+		// disabled) recognized at either location — switching variants must
+		// check both, not just the live path, or a disabled pack looks like
+		// nothing is installed and re-installing silently re-enables it and
+		// orphans the old file.
+		const oldParkedPath = existingState
+			? path.join(dataDir, parkedSuffix(existingState.filename))
+			: null;
+		const oldRecognizedPath = existingState
+			? (await isOurFile(destPath, existingState.size))
+				? destPath
+				: oldParkedPath && (await isOurFile(oldParkedPath, existingState.size))
+				? oldParkedPath
+				: null
+			: null;
+		const wasEnabled = oldRecognizedPath === null ? true : oldRecognizedPath === destPath;
+
+		// something unrecognized already sits at the live path — refuse
+		// rather than risk clobbering an official OctoWoW content patch
+		// that happens to share the name.
+		if ((await fs.pathExists(destPath)) && oldRecognizedPath !== destPath) {
 			const msg = `Refusing to overwrite ${file.filename}: an unrecognized file already exists there.`;
 			Logger.error(`Visual pack "${id}": ${msg}`);
 			this.#patchRow(id, { error: msg });
@@ -349,9 +386,21 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 
 		this.#patchRow(id, { progress: 0, error: undefined });
 		try {
+			// switching variants while parked (disabled): the old variant's
+			// file would otherwise never get touched again by anything
+			if (oldRecognizedPath === oldParkedPath && oldRecognizedPath)
+				await fs.remove(oldRecognizedPath).catch(() => undefined);
+
 			await downloadToFile(file.url, destPath, file.size, fraction =>
 				this.#patchRow(id, { progress: fraction })
 			);
+			// preserve a disabled pack's state across a variant switch —
+			// downloadToFile always writes to the live path, so park it
+			// back if the pack wasn't enabled before this install
+			if (!wasEnabled)
+				await fs.move(destPath, path.join(dataDir, parkedSuffix(file.filename)), {
+					overwrite: true
+				});
 			Preferences.data = {
 				visualPacks: {
 					...Preferences.data.visualPacks,
@@ -359,7 +408,7 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 						variant: variantId,
 						filename: file.filename,
 						size: file.size,
-						enabled: true,
+						enabled: wasEnabled,
 						// just downloaded from the catalog URL itself — nothing
 						// stale to catch, so skip the one-time hash check
 						contentVerified: true
@@ -368,7 +417,7 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 			};
 			this.#patchRow(id, {
 				installed: true,
-				enabled: true,
+				enabled: wasEnabled,
 				installedVariant: variantId,
 				progress: undefined
 			});

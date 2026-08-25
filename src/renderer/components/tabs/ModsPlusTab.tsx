@@ -47,11 +47,15 @@ const PackCard = ({
 	const missingDeps = (pack.requires ?? []).filter(dep => {
 		if (dep === 'T' && pack.id === 'U') {
 			// Ultra HD specifically needs the Ultra Base variant of Patch-T,
-			// not just "T installed in any form"
+			// not just "T installed in any form" — and installed alone isn't
+			// enough either, same as the general check below
 			const tRow = installedRow('T');
-			return !tRow?.installed || tRow.installedVariant !== 'ultraBase';
+			return !tRow?.installed || !tRow?.enabled || tRow.installedVariant !== 'ultraBase';
 		}
-		return !installedRow(dep)?.installed;
+		// installed-but-disabled means the dependency's assets aren't
+		// actually active in game, same as not being installed at all
+		const depRow = installedRow(dep);
+		return !depRow?.installed || !depRow?.enabled;
 	});
 
 	const onInstall = (variant?: string) => {

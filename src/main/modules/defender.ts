@@ -6,6 +6,8 @@ import path from 'node:path';
 import { app } from 'electron';
 import Logger from 'electron-log/main';
 
+import { type ModId } from '~common/mods';
+
 import Preferences from './preferences';
 import { isDxvkEffectivelyEnabled } from './mods';
 
@@ -137,19 +139,24 @@ export const addDefenderExclusions = async (): Promise<ExclusionResult> => {
 	});
 };
 
-const SENSITIVE_FILES = [
-	'WoW.exe',
-	'VanillaFixes.exe',
-	'd3d9.dll',
-	'UnitXP_SP3.dll',
-	'nampower.dll',
-	'VfPatcher.dll',
-	'VanillaHelpers.dll',
-	'VanillaMultiMonitorFix.dll',
-	'transmogfix.dll',
-	'SuperWoWhook.dll',
-	'ClassicAPI.dll'
-];
+// WoW.exe has no entry — it's the base game, always expected once synced.
+// Everything else here is only ever written to disk by its owning mod, so a
+// user who's simply never opted into that mod (most mods below ship
+// disabled by default — see preferences.ts #withFreshInstallDefaults) would
+// otherwise have their file's mere absence misread as "antivirus blocked
+// it".
+const SENSITIVE_FILES: Partial<Record<string, ModId>> = {
+	'VanillaFixes.exe': 'vanillaFixes',
+	'd3d9.dll': 'dxvk',
+	'UnitXP_SP3.dll': 'unitXp',
+	'nampower.dll': 'nampower',
+	'VfPatcher.dll': 'vanillaFixes',
+	'VanillaHelpers.dll': 'vanillaHelpers',
+	'VanillaMultiMonitorFix.dll': 'multiMonitorFix',
+	'transmogfix.dll': 'transmogFix',
+	'SuperWoWhook.dll': 'superWow',
+	'ClassicAPI.dll': 'classicApi'
+};
 
 export const detectAntivirusBlocks = async (): Promise<string[]> => {
 	if (os.platform() !== 'win32') return [];
@@ -164,17 +171,23 @@ export const detectAntivirusBlocks = async (): Promise<string[]> => {
 
 	const blocked = new Set<string>();
 
-	if (clientDir && Preferences.data.syncedTorrentHash)
-		for (const name of SENSITIVE_FILES) {
+	if (clientDir && Preferences.data.syncedTorrentHash) {
+		if (!fs.existsSync(path.join(clientDir, 'WoW.exe'))) blocked.add('WoW.exe');
+		for (const [name, modId] of Object.entries(SENSITIVE_FILES)) {
 			// d3d9.dll is deliberately parked/never installed while dxvk is
 			// off — including the hardware-gated "no Vulkan" case, which
 			// only overrides the in-memory status row and never gets
 			// written back to this stored preference — so check the
 			// resolved state, not the raw toggle, or a no-Vulkan PC gets an
 			// incorrect "antivirus blocked this" warning.
-			if (name === 'd3d9.dll' && !isDxvkEffectivelyEnabled()) continue;
+			const enabled =
+				modId === 'dxvk'
+					? isDxvkEffectivelyEnabled()
+					: !!Preferences.data.mods?.[modId as ModId]?.enabled;
+			if (!enabled) continue;
 			if (!fs.existsSync(path.join(clientDir, name))) blocked.add(name);
 		}
+	}
 
 	const script =
 		'Get-MpThreatDetection | Where-Object ' +

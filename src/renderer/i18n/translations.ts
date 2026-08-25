@@ -16,7 +16,7 @@ const enUS: Dict = {
 		'These packs are built for Turtle WoW, not OctoWoW. Packs marked below reference Turtle-specific content and may not perfectly match what OctoWoW added on top of vanilla.',
 	'modsPlus.serverSpecificWarning': 'Turtle WoW-tuned — may mismatch OctoWoW-specific content',
 	'modsPlus.crashWarning':
-		"Confirmed to crash the game on its own during testing — not just in combination with other packs. Not recommended until this is investigated further.",
+		'Confirmed to crash the game on its own during testing — not just in combination with other packs. Not recommended until this is investigated further.',
 	'modsPlus.requires': 'Requires: {packs}',
 	'modsPlus.install': 'Install',
 	'modsPlus.uninstall': 'Uninstall',
@@ -179,7 +179,7 @@ const enUS: Dict = {
 	'mods.errorTitle': 'Install error — {mod}',
 	'mods.retry': 'Retry',
 	'mods.retrying': 'Retrying…',
-	'mods.close': 'Close',
+	'mods.retryFailed': 'Retry failed: {error}',
 	'mods.yourDlls': 'Your DLL mods',
 	'mods.yourDllsEmpty':
 		'Drop a .dll into your game folder, or add one below, to toggle it here.',

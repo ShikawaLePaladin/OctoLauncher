@@ -24,12 +24,10 @@ import IconSpinner from '../styled/IconSpinner';
 // proper dialog: the full message, plus a one-click retry using the same
 // resync-then-reverify recovery already used for the missingFiles banner.
 const ModErrorDialog = ({
-	modId,
 	modName,
 	error,
 	onClose
 }: {
-	modId: string;
 	modName: string;
 	error: string;
 	onClose: () => void;
@@ -38,6 +36,7 @@ const ModErrorDialog = ({
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	const resync = api.updater.update.useMutation();
 	const revalidate = api.mods.verify.useMutation();
+	const [retryError, setRetryError] = useState<string | null>(null);
 
 	useEffect(() => {
 		dialogRef.current?.showModal();
@@ -45,9 +44,14 @@ const ModErrorDialog = ({
 
 	const retrying = resync.isLoading || revalidate.isLoading;
 	const onRetry = async () => {
-		await resync.mutateAsync();
-		await revalidate.mutateAsync();
-		onClose();
+		setRetryError(null);
+		try {
+			await resync.mutateAsync();
+			await revalidate.mutateAsync();
+			onClose();
+		} catch (e) {
+			setRetryError(e instanceof Error ? e.message : String(e));
+		}
 	};
 
 	return createPortal(
@@ -59,6 +63,9 @@ const ModErrorDialog = ({
 			<div className="tw-dialog !w-fit min-w-[380px] max-w-[480px] !gap-3">
 				<h3 className="tw-color">{t('mods.errorTitle', { mod: modName })}</h3>
 				<p className="s1 whitespace-pre-wrap text-orange">{error}</p>
+				{retryError && (
+					<p className="s1 text-red">{t('mods.retryFailed', { error: retryError })}</p>
+				)}
 				<div className="mt-1 flex justify-end gap-3">
 					<TextButton onClick={onClose} className="text-blueGray">
 						{t('mods.close')}
@@ -268,7 +275,6 @@ const ModRow = ({ row }: { row: ModRowStatus }) => {
 		<>
 			{showError && row.error && (
 				<ModErrorDialog
-					modId={row.id}
 					modName={row.name}
 					error={row.error}
 					onClose={() => setShowError(false)}
