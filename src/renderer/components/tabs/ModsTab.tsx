@@ -17,15 +17,86 @@ import CheckboxInput from '../form/CheckboxInput';
 import RadioInput from '../form/RadioInput';
 import IconSpinner from '../styled/IconSpinner';
 
-const RowState = ({ row }: { row: ModRowStatus }) => {
+// row.error used to only surface via a hover title= tooltip — easy to never
+// discover at all (no hover on touch, no reason to hover a small icon you
+// don't recognize), which meant a failed install could look like nothing
+// happened rather than like an error report to go find. This makes it a
+// proper dialog: the full message, plus a one-click retry using the same
+// resync-then-reverify recovery already used for the missingFiles banner.
+const ModErrorDialog = ({
+	modId,
+	modName,
+	error,
+	onClose
+}: {
+	modId: string;
+	modName: string;
+	error: string;
+	onClose: () => void;
+}) => {
+	const t = useT();
+	const dialogRef = useRef<HTMLDialogElement>(null);
+	const resync = api.updater.update.useMutation();
+	const revalidate = api.mods.verify.useMutation();
+
+	useEffect(() => {
+		dialogRef.current?.showModal();
+	}, []);
+
+	const retrying = resync.isLoading || revalidate.isLoading;
+	const onRetry = async () => {
+		await resync.mutateAsync();
+		await revalidate.mutateAsync();
+		onClose();
+	};
+
+	return createPortal(
+		<dialog
+			ref={dialogRef}
+			onClose={onClose}
+			className="h-full w-full items-center justify-center bg-[transparent] backdrop:backdrop-blur-sm [&[open]]:flex"
+		>
+			<div className="tw-dialog !w-fit min-w-[380px] max-w-[480px] !gap-3">
+				<h3 className="tw-color">{t('mods.errorTitle', { mod: modName })}</h3>
+				<p className="s1 whitespace-pre-wrap text-orange">{error}</p>
+				<div className="mt-1 flex justify-end gap-3">
+					<TextButton onClick={onClose} className="text-blueGray">
+						{t('mods.close')}
+					</TextButton>
+					<TextButton
+						onClick={onRetry}
+						loading={retrying}
+						className="text-warmGreen"
+					>
+						{retrying ? t('mods.retrying') : t('mods.retry')}
+					</TextButton>
+				</div>
+			</div>
+		</dialog>,
+		document.body
+	);
+};
+
+const RowState = ({
+	row,
+	onShowError
+}: {
+	row: ModRowStatus;
+	onShowError: () => void;
+}) => {
 	const t = useT();
 	if (['downloading', 'installing', 'uninstalling'].includes(row.state))
 		return <IconSpinner className="text-blueGray" />;
 	if (row.state === 'error')
 		return (
-			<span title={row.error}>
+			<button
+				type="button"
+				onClick={onShowError}
+				title={row.error}
+				className="cursor-pointer"
+			>
 				<AlertTriangle size={14} className="text-red" />
-			</span>
+			</button>
 		);
 	if (
 		row.installedVersion &&
@@ -191,9 +262,18 @@ const ModRow = ({ row }: { row: ModRowStatus }) => {
 		enabled: row.id === 'dxvk'
 	});
 	const dxvkBlocked = row.id === 'dxvk' && dxvkStatus?.effective === 'none';
+	const [showError, setShowError] = useState(false);
 
 	return (
 		<>
+			{showError && row.error && (
+				<ModErrorDialog
+					modId={row.id}
+					modName={row.name}
+					error={row.error}
+					onClose={() => setShowError(false)}
+				/>
+			)}
 			<div className="flex items-baseline gap-2">
 				{row.recommended && (
 					<Sparkles size={12} className="shrink-0 text-warmGreen" />
@@ -228,7 +308,7 @@ const ModRow = ({ row }: { row: ModRowStatus }) => {
 					onClick={() => openLink.mutateAsync(row.repoUrl)}
 					className="!p-0 text-blueGray"
 				/>
-				<RowState row={row} />
+				<RowState row={row} onShowError={() => setShowError(true)} />
 			</div>
 			<CheckboxInput
 				value={row.ignoreUpdates}

@@ -146,7 +146,9 @@ const SENSITIVE_FILES = [
 	'VfPatcher.dll',
 	'VanillaHelpers.dll',
 	'VanillaMultiMonitorFix.dll',
-	'transmogfix.dll'
+	'transmogfix.dll',
+	'SuperWoWhook.dll',
+	'ClassicAPI.dll'
 ];
 
 export const detectAntivirusBlocks = async (): Promise<string[]> => {
