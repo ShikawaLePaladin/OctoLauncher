@@ -54,7 +54,12 @@ export const VisualPackStateSchema = z.object({
 	// disabling parks the file as "<filename>.off" instead of deleting it —
 	// these run into the multi-GB range, so toggling shouldn't mean
 	// re-downloading to turn it back on
-	enabled: z.boolean().default(true)
+	enabled: z.boolean().default(true),
+	// set once we've checked this installed file's content against the
+	// catalog's sha256 (when it declares one) and either confirmed it or
+	// dropped it as stale — a one-time check, not repeated on every
+	// startup, since hashing a multi-GB file isn't free
+	contentVerified: z.boolean().default(false)
 });
 export type VisualPackState = z.infer<typeof VisualPackStateSchema>;
 

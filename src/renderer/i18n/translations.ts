@@ -15,8 +15,6 @@ const enUS: Dict = {
 	'modsPlus.turtleWarning':
 		'These packs are built for Turtle WoW, not OctoWoW. Packs marked below reference Turtle-specific content and may not perfectly match what OctoWoW added on top of vanilla.',
 	'modsPlus.serverSpecificWarning': 'Turtle WoW-tuned — may mismatch OctoWoW-specific content',
-	'modsPlus.stabilityWarning':
-		"Installing several packs together has been observed to crash the game on some setups, even combinations this page suggests as a set. Install one pack, launch the game to confirm it's stable, then add the next — don't install everything at once.",
 	'modsPlus.crashWarning':
 		"Confirmed to crash the game on its own during testing — not just in combination with other packs. Not recommended until this is investigated further.",
 	'modsPlus.requires': 'Requires: {packs}',

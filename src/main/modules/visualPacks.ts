@@ -1,4 +1,5 @@
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 
@@ -92,6 +93,15 @@ const downloadToFile = async (
 // having installed it) means "not ours", so callers must refuse rather than
 // touch it — it could be an official OctoWoW content patch that happens to
 // use the same Data/ filename.
+const sha256File = (filePath: string): Promise<string> =>
+	new Promise((resolve, reject) => {
+		const hash = crypto.createHash('sha256');
+		fs.createReadStream(filePath)
+			.on('error', reject)
+			.on('data', chunk => hash.update(chunk))
+			.on('end', () => resolve(hash.digest('hex')));
+	});
+
 const isOurFile = async (
 	filePath: string,
 	recordedSize: number | undefined
@@ -198,8 +208,67 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 		}
 	}
 
+	// A pack's catalog file can be re-uploaded at the same URL/size with
+	// different bytes (e.g. patch-C.mpq fixed in place after a crash was
+	// root-caused to 3 files inside it) — size alone can't tell an install
+	// from before that fix apart from one after it. Checked once per
+	// install (state.contentVerified), not on every startup, since hashing
+	// a multi-GB file isn't free; a pack whose catalog entry declares no
+	// sha256 is marked verified immediately and never hashed.
+	async #verifyContentHashes() {
+		const dataDir = this.#dataDir();
+		if (!dataDir) return;
+		for (const pack of VISUAL_PACKS) {
+			const state = Preferences.data.visualPacks?.[pack.id];
+			if (!state || state.contentVerified) continue;
+			const expected: VisualPackFile | undefined =
+				pack.file ?? pack.variants?.find(v => v.id === state.variant)?.file;
+			if (!expected) continue;
+
+			if (!expected.sha256) {
+				Preferences.data = {
+					visualPacks: {
+						...Preferences.data.visualPacks,
+						[pack.id]: { ...state, contentVerified: true }
+					}
+				};
+				continue;
+			}
+
+			const livePath = path.join(dataDir, state.filename);
+			const parkedPath = path.join(dataDir, parkedSuffix(state.filename));
+			const target = (await isOurFile(livePath, state.size))
+				? livePath
+				: (await isOurFile(parkedPath, state.size))
+				? parkedPath
+				: null;
+			if (!target) continue; // nothing of ours here — the stale-record cleanup below handles it
+
+			const actualHash = await sha256File(target);
+			if (actualHash === expected.sha256) {
+				Preferences.data = {
+					visualPacks: {
+						...Preferences.data.visualPacks,
+						[pack.id]: { ...state, contentVerified: true }
+					}
+				};
+				continue;
+			}
+
+			Logger.warn(
+				`Visual pack "${pack.id}": ${path.basename(target)} doesn't match the current release's content (superseded by a fix) — removing so it gets re-downloaded.`
+			);
+			await fs.remove(target).catch(e =>
+				Logger.warn(`Visual pack "${pack.id}": failed to remove stale ${path.basename(target)}`, e)
+			);
+			const { [pack.id]: _removed, ...rest } = Preferences.data.visualPacks ?? {};
+			Preferences.data = { visualPacks: rest };
+		}
+	}
+
 	async refresh() {
 		await this.#migrateLegacyFilenames();
+		await this.#verifyContentHashes();
 		await this.#cleanupOrphanedDownloads();
 		const dataDir = this.#dataDir();
 		const rows: VisualPackRowStatus[] = [];
@@ -286,7 +355,15 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 			Preferences.data = {
 				visualPacks: {
 					...Preferences.data.visualPacks,
-					[id]: { variant: variantId, filename: file.filename, size: file.size, enabled: true }
+					[id]: {
+						variant: variantId,
+						filename: file.filename,
+						size: file.size,
+						enabled: true,
+						// just downloaded from the catalog URL itself — nothing
+						// stale to catch, so skip the one-time hash check
+						contentVerified: true
+					}
 				}
 			};
 			this.#patchRow(id, {

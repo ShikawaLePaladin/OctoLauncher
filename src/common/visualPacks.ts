@@ -50,6 +50,14 @@ export type VisualPackFile = {
 	// refresh() notices the size no longer matches and drops the pack's
 	// stale "installed" record on its own.
 	filename: string;
+	// optional: a content hash used to catch "same size, different bytes"
+	// cases size-matching alone can't (e.g. a fixed re-upload replacing a
+	// broken file at the same URL) — checked once per install, not on
+	// every startup, since hashing these files isn't free. Omitted by
+	// default for the same reason sizes are used instead of hashes for
+	// download verification: computing one means reading the whole
+	// multi-GB file.
+	sha256?: string;
 };
 
 export type VisualPackVariant = {
@@ -108,16 +116,28 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		icon: '🐉',
 		description: 'Creatures and related assets for the classic client.',
 		version: 'v5.5.1',
-		// reproduced directly: with only this pack's .mpq present (and
-		// loading confirmed via a file-lock check), the client hits the same
-		// access violation every time, usually within a couple of minutes.
-		// Every other pack tested alone (A, G) ran crash-free for 9-16
-		// minutes; every combination that included this one crashed with
-		// the identical faulting address. Isolated 2026-08-25, not yet
-		// root-caused (likely a creature asset OctoWoW's own content
-		// indexes differently than stock/Turtle).
-		crashesGame: true,
-		file: { url: `${CDN}/patch-C.mpq`, size: 2083036611, filename: 'patch-C.mpq' }
+		// this pack used to crash the client reliably within 1-2 minutes,
+		// alone or in any combination. Root cause: it bundles its own
+		// DBFilesClient\Creature{DisplayInfo,ModelData,SoundData}.dbc,
+		// replacing OctoWoW's own — those DBCs are indexed by ID, and a
+		// lookup for any custom creature OctoWoW added past what this
+		// pack's tables cover reads a garbage/out-of-bounds row, which is
+		// exactly the null/near-null access violation observed. Fixed by
+		// deleting those 3 files' hash-table entries from the .mpq (the
+		// standard MPQ file-delete convention: blockTableIndex set to
+		// 0xFFFFFFFE) so the client falls through to OctoWoW's own DBCs —
+		// every other file in the pack (models/textures/sounds) is
+		// untouched, so the HD visuals are unaffected. Re-verified stable
+		// for 3+ minutes standalone and in combination with the full pack
+		// set after the fix. sha256 lets refresh() catch anyone who
+		// downloaded the broken file before this fix shipped (same byte
+		// size, so the existing size check alone can't tell them apart).
+		file: {
+			url: `${CDN}/patch-C.mpq`,
+			size: 2083036611,
+			filename: 'patch-C.mpq',
+			sha256: 'da0a667cf93f0c36860dbd8567fb8e1dc22a1b7f77fc6257a195464437e09e2d'
+		}
 	},
 	{
 		id: 'D',
