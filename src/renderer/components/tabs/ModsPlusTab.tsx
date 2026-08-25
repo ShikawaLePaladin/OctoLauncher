@@ -9,6 +9,7 @@ import { VISUAL_PACKS, type VisualPackEntry } from '~common/visualPacks';
 import { type VisualPacksStatus, type VisualPackRowStatus } from '~main/types';
 
 import TextButton from '../styled/TextButton';
+import CheckboxInput from '../form/CheckboxInput';
 
 const fmtSize = (bytes: number) =>
 	bytes >= 1024 ** 3
@@ -35,10 +36,11 @@ const PackCard = ({
 	const t = useT();
 	const install = api.visualPacks.install.useMutation();
 	const uninstall = api.visualPacks.uninstall.useMutation();
+	const setEnabled = api.visualPacks.setEnabled.useMutation();
 
 	const [pendingVariant, setPendingVariant] = useState<string | undefined>();
 
-	const isInstalled = row?.id === pack.id ? row.installed : false;
+	const isInstalled = row?.installed ?? false;
 	const busy = row?.progress !== undefined;
 	const installedRow = (id: string) => rows.find(r => r.id === id);
 
@@ -56,6 +58,25 @@ const PackCard = ({
 		setPendingVariant(variant);
 		install.mutate({ id: pack.id, variant });
 	};
+
+	const InstalledActions = () => (
+		<div className="flex items-center gap-3">
+			<CheckboxInput
+				value={row?.enabled ?? false}
+				setValue={v => setEnabled.mutate({ id: pack.id, enabled: v })}
+				disabled={setEnabled.isLoading}
+				label={<span className="s1">{t('modsPlus.enabled')}</span>}
+			/>
+			<TextButton
+				icon={Trash2}
+				onClick={() => uninstall.mutate(pack.id)}
+				loading={uninstall.isLoading}
+				className="text-red"
+			>
+				{t('modsPlus.uninstall')}
+			</TextButton>
+		</div>
+	);
 
 	return (
 		<div
@@ -105,14 +126,7 @@ const PackCard = ({
 								<p className="s1 text-blueGray/50">{v.note}</p>
 							</div>
 							{isInstalled && row?.installedVariant === v.id ? (
-								<TextButton
-									icon={Trash2}
-									onClick={() => uninstall.mutate(pack.id)}
-									loading={uninstall.isLoading}
-									className="text-red"
-								>
-									{t('modsPlus.uninstall')}
-								</TextButton>
+								<InstalledActions />
 							) : (
 								<TextButton
 									icon={Download}
@@ -131,14 +145,7 @@ const PackCard = ({
 				<div className="flex items-center justify-between gap-2">
 					<p className="s1 text-blueGray/50">{fmtSize(packSize(pack))}</p>
 					{isInstalled ? (
-						<TextButton
-							icon={Trash2}
-							onClick={() => uninstall.mutate(pack.id)}
-							loading={uninstall.isLoading}
-							className="text-red"
-						>
-							{t('modsPlus.uninstall')}
-						</TextButton>
+						<InstalledActions />
 					) : (
 						<TextButton
 							icon={Download}
@@ -182,9 +189,11 @@ const ModsPlusTab = () => {
 	const rowFor = (id: string) => status.rows.find(r => r.id === id);
 
 	const bdeAllInstalled = bde.every(p => rowFor(p.id)?.installed);
+	const bdeAllEnabled = bde.every(p => rowFor(p.id)?.enabled);
 	const bdeAnyBusy = bde.some(p => rowFor(p.id)?.progress !== undefined);
 	const bdeInstall = api.visualPacks.install.useMutation();
 	const bdeUninstall = api.visualPacks.uninstall.useMutation();
+	const bdeSetEnabled = api.visualPacks.setEnabled.useMutation();
 
 	return (
 		<div className="tw-surface flex min-h-0 flex-grow flex-col gap-3">
@@ -202,6 +211,10 @@ const ModsPlusTab = () => {
 			<p className="s1 flex items-center gap-1 text-orange">
 				<AlertTriangle size={12} className="shrink-0" />
 				{t('modsPlus.turtleWarning')}
+			</p>
+			<p className="s1 flex items-center gap-1 text-red">
+				<AlertTriangle size={12} className="shrink-0" />
+				{t('modsPlus.stabilityWarning')}
 			</p>
 			<hr />
 			<div
@@ -234,14 +247,24 @@ const ModsPlusTab = () => {
 							{fmtSize(bde.reduce((sum, p) => sum + packSize(p), 0))}
 						</p>
 						{bdeAllInstalled ? (
-							<TextButton
-								icon={Trash2}
-								onClick={() => bde.forEach(p => bdeUninstall.mutate(p.id))}
-								loading={bdeUninstall.isLoading}
-								className="self-start text-red"
-							>
-								{t('modsPlus.uninstall')}
-							</TextButton>
+							<div className="flex items-center gap-3">
+								<CheckboxInput
+									value={bdeAllEnabled}
+									setValue={v =>
+										bde.forEach(p => bdeSetEnabled.mutate({ id: p.id, enabled: v }))
+									}
+									disabled={bdeSetEnabled.isLoading}
+									label={<span className="s1">{t('modsPlus.enabled')}</span>}
+								/>
+								<TextButton
+									icon={Trash2}
+									onClick={() => bde.forEach(p => bdeUninstall.mutate(p.id))}
+									loading={bdeUninstall.isLoading}
+									className="text-red"
+								>
+									{t('modsPlus.uninstall')}
+								</TextButton>
+							</div>
 						) : (
 							<TextButton
 								icon={Download}

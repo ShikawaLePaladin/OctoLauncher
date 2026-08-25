@@ -19,10 +19,15 @@ import Observable from './observable';
 export type VisualPackRowStatus = {
 	id: VisualPackId;
 	installed: boolean;
+	enabled: boolean;
 	installedVariant?: string;
 	progress?: number; // 0-1, present only while downloading
 	error?: string;
 };
+
+// disabling parks the file under this suffix instead of deleting it —
+// re-enabling is a rename, not a re-download.
+const parkedSuffix = (filename: string) => `${filename}.off`;
 
 export type VisualPacksStatus = {
 	rows: VisualPackRowStatus[];
@@ -110,7 +115,7 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 	#patchRow(id: VisualPackId, patch: Partial<VisualPackRowStatus>) {
 		const rows = this._value.rows.some(r => r.id === id)
 			? this._value.rows.map(r => (r.id === id ? { ...r, ...patch } : r))
-			: [...this._value.rows, { id, installed: false, ...patch }];
+			: [...this._value.rows, { id, installed: false, enabled: false, ...patch }];
 		this.status = { rows };
 	}
 
@@ -118,14 +123,21 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 	// downloadToFile()'s own cleanup (the whole app closing mid-stream,
 	// rather than the fetch/write itself failing) — nothing is ever
 	// mid-download at the moment refresh() runs, right after startup, so
-	// any .tmp found here is safe to remove outright.
+	// any .tmp found here is safe to remove outright. Matched against the
+	// current catalog's own filenames rather than a loose pattern, so this
+	// can never sweep up something unrelated.
 	async #cleanupOrphanedDownloads() {
 		const dataDir = this.#dataDir();
 		if (!dataDir) return;
+		const ours = new Set(
+			VISUAL_PACKS.flatMap(p =>
+				(p.file ? [p.file] : p.variants?.map(v => v.file) ?? []).map(f => `${f.filename}.tmp`)
+			)
+		);
 		const names = await fs.readdir(dataDir).catch(() => []);
 		await Promise.all(
 			names
-				.filter(n => /^patch-reforged-.*\.mpq\.tmp$/.test(n))
+				.filter(n => ours.has(n))
 				.map(n =>
 					fs
 						.remove(path.join(dataDir, n))
@@ -135,30 +147,100 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 		);
 	}
 
+	// Early builds installed packs as "patch-reforged-<letter>.mpq" to avoid
+	// any chance of colliding with an official OctoWoW patch filename. That
+	// turned out to make them invisible to the client's own patch loader —
+	// confirmed by direct testing, it only opens single-character suffixes
+	// (patch-O.mpq is the same scheme OctoWoW's own content uses) — so every
+	// pack installed under the old name was silently inert in game despite
+	// reporting a successful install. This renames already-downloaded files
+	// to the working name in place, so nobody has to re-download multiple GB
+	// on top of the naming fix.
+	async #migrateLegacyFilenames() {
+		const dataDir = this.#dataDir();
+		if (!dataDir) return;
+		for (const pack of VISUAL_PACKS) {
+			const state = Preferences.data.visualPacks?.[pack.id];
+			if (!state) continue;
+			const expected: VisualPackFile | undefined =
+				pack.file ?? pack.variants?.find(v => v.id === state.variant)?.file;
+			if (!expected || state.filename === expected.filename) continue;
+
+			const oldLive = path.join(dataDir, state.filename);
+			const oldParked = path.join(dataDir, parkedSuffix(state.filename));
+			const fromPath = (await isOurFile(oldLive, state.size))
+				? oldLive
+				: (await isOurFile(oldParked, state.size))
+				? oldParked
+				: null;
+			// nothing of ours left under the old name — the normal
+			// stale-record cleanup further down handles this case
+			if (!fromPath) continue;
+
+			const toPath = path.join(
+				dataDir,
+				fromPath === oldLive ? expected.filename : parkedSuffix(expected.filename)
+			);
+			if ((await fs.pathExists(toPath)) && !(await isOurFile(toPath, state.size))) {
+				Logger.warn(
+					`Visual pack "${pack.id}": can't migrate to ${expected.filename}, an unrecognized file already exists there.`
+				);
+				continue;
+			}
+			await fs.move(fromPath, toPath, { overwrite: true });
+			Preferences.data = {
+				visualPacks: {
+					...Preferences.data.visualPacks,
+					[pack.id]: { ...state, filename: expected.filename }
+				}
+			};
+			Logger.info(`Visual pack "${pack.id}": migrated ${state.filename} -> ${expected.filename}`);
+		}
+	}
+
 	async refresh() {
+		await this.#migrateLegacyFilenames();
 		await this.#cleanupOrphanedDownloads();
 		const dataDir = this.#dataDir();
 		const rows: VisualPackRowStatus[] = [];
 		const stale: VisualPackId[] = [];
+		const driftedEnabled: Record<string, boolean> = {};
 
 		for (const pack of VISUAL_PACKS) {
 			const state = Preferences.data.visualPacks?.[pack.id];
-			const installed =
-				!!state && !!dataDir && (await isOurFile(path.join(dataDir, state.filename), state.size));
+			let installed = false;
+			let enabled = false;
+			if (state && dataDir) {
+				const livePath = path.join(dataDir, state.filename);
+				const parkedPath = path.join(dataDir, parkedSuffix(state.filename));
+				if (await isOurFile(livePath, state.size)) {
+					installed = true;
+					enabled = true;
+				} else if (await isOurFile(parkedPath, state.size)) {
+					installed = true;
+					enabled = false;
+				}
+			}
 			rows.push({
 				id: pack.id,
 				installed,
+				enabled,
 				installedVariant: installed ? state?.variant : undefined
 			});
-			// the stored record is stale (file gone/changed outside the
-			// launcher) — drop it rather than keep claiming an install that
-			// no longer matches reality
 			if (state && !installed) stale.push(pack.id);
+			// the recorded enabled flag disagrees with which of the two
+			// paths actually matches on disk (e.g. renamed outside the
+			// launcher) — reconcile the record to reality
+			else if (state && state.enabled !== enabled) driftedEnabled[pack.id] = enabled;
 		}
 
-		if (stale.length) {
+		if (stale.length || Object.keys(driftedEnabled).length) {
 			const visualPacks = { ...Preferences.data.visualPacks };
 			for (const id of stale) delete visualPacks[id];
+			for (const [id, enabled] of Object.entries(driftedEnabled)) {
+				const existing = visualPacks[id as VisualPackId];
+				if (existing) visualPacks[id as VisualPackId] = { ...existing, enabled };
+			}
 			Preferences.data = { visualPacks };
 		}
 		this.status = { rows };
@@ -204,10 +286,15 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 			Preferences.data = {
 				visualPacks: {
 					...Preferences.data.visualPacks,
-					[id]: { variant: variantId, filename: file.filename, size: file.size }
+					[id]: { variant: variantId, filename: file.filename, size: file.size, enabled: true }
 				}
 			};
-			this.#patchRow(id, { installed: true, installedVariant: variantId, progress: undefined });
+			this.#patchRow(id, {
+				installed: true,
+				enabled: true,
+				installedVariant: variantId,
+				progress: undefined
+			});
 			Logger.info(`Visual pack "${id}" installed (${file.filename}, ${file.size} bytes)`);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
@@ -216,15 +303,55 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 		}
 	}
 
+	// disable/re-enable an already-installed pack without touching the
+	// download — a rename either way, so toggling a multi-GB pack off and
+	// back on doesn't mean re-fetching it.
+	async setEnabled(id: VisualPackId, wantEnabled: boolean) {
+		const dataDir = this.#dataDir();
+		const state = Preferences.data.visualPacks?.[id];
+		if (!dataDir || !state || state.enabled === wantEnabled) return;
+
+		const livePath = path.join(dataDir, state.filename);
+		const parkedPath = path.join(dataDir, parkedSuffix(state.filename));
+		const [from, to] = wantEnabled ? [parkedPath, livePath] : [livePath, parkedPath];
+
+		if (!(await isOurFile(from, state.size))) {
+			const msg = `Can't ${wantEnabled ? 'enable' : 'disable'} ${state.filename}: it no longer matches what was installed.`;
+			Logger.warn(`Visual pack "${id}": ${msg}`);
+			this.#patchRow(id, { error: msg });
+			return;
+		}
+		if ((await fs.pathExists(to)) && !(await isOurFile(to, state.size))) {
+			const msg = `Refusing to overwrite an unrecognized file at ${path.basename(to)}.`;
+			Logger.error(`Visual pack "${id}": ${msg}`);
+			this.#patchRow(id, { error: msg });
+			return;
+		}
+
+		await fs.move(from, to, { overwrite: true });
+		Preferences.data = {
+			visualPacks: { ...Preferences.data.visualPacks, [id]: { ...state, enabled: wantEnabled } }
+		};
+		this.#patchRow(id, { enabled: wantEnabled, error: undefined });
+		Logger.info(`Visual pack "${id}" ${wantEnabled ? 'enabled' : 'disabled'}`);
+	}
+
 	async uninstall(id: VisualPackId) {
 		const dataDir = this.#dataDir();
 		const state = Preferences.data.visualPacks?.[id];
 		if (!dataDir || !state) return;
 
-		const filePath = path.join(dataDir, state.filename);
-		if (await isOurFile(filePath, state.size)) {
-			await fs.remove(filePath).catch(e => {
-				Logger.warn(`Visual pack "${id}": failed to remove ${state.filename}`, e);
+		const livePath = path.join(dataDir, state.filename);
+		const parkedPath = path.join(dataDir, parkedSuffix(state.filename));
+		const target = (await isOurFile(livePath, state.size))
+			? livePath
+			: (await isOurFile(parkedPath, state.size))
+			? parkedPath
+			: null;
+
+		if (target) {
+			await fs.remove(target).catch(e => {
+				Logger.warn(`Visual pack "${id}": failed to remove ${path.basename(target)}`, e);
 			});
 		} else {
 			// already gone, or changed since — either way there's nothing of
@@ -236,7 +363,12 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 
 		const { [id]: _removed, ...rest } = Preferences.data.visualPacks ?? {};
 		Preferences.data = { visualPacks: rest };
-		this.#patchRow(id, { installed: false, installedVariant: undefined, error: undefined });
+		this.#patchRow(id, {
+			installed: false,
+			enabled: false,
+			installedVariant: undefined,
+			error: undefined
+		});
 		Logger.info(`Visual pack "${id}" uninstalled`);
 	}
 }

@@ -50,7 +50,11 @@ export type ModState = z.infer<typeof ModStateSchema>;
 export const VisualPackStateSchema = z.object({
 	variant: z.string().optional(),
 	filename: z.string(),
-	size: z.number()
+	size: z.number(),
+	// disabling parks the file as "<filename>.off" instead of deleting it —
+	// these run into the multi-GB range, so toggling shouldn't mean
+	// re-downloading to turn it back on
+	enabled: z.boolean().default(true)
 });
 export type VisualPackState = z.infer<typeof VisualPackStateSchema>;
 

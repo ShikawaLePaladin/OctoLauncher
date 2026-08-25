@@ -37,12 +37,18 @@ export type VisualPackId = z.infer<typeof VisualPackIdSchema>;
 export type VisualPackFile = {
 	url: string;
 	size: number;
-	// exact Data/<filename> this installs as. Deliberately NOT "patch-<letter>.mpq"
-	// — OctoWoW's own client already ships official content under that
-	// single-letter scheme (patch-O.mpq exists today), and a future
-	// official patch could claim any of these same letters. A distinct
-	// prefix guarantees this feature can never collide with — or get
-	// silently overwritten/orphaned by — an official server patch.
+	// exact Data/<filename> this installs as. MUST be "patch-<single char>.mpq"
+	// — confirmed by direct testing that the client's patch loader only scans
+	// for that exact shape (matching official patch-O.mpq); a longer name
+	// like "patch-reforged-A.mpq" is silently never opened, so the pack
+	// downloads fine but has zero effect in game. This does mean a letter
+	// could collide with a future official OctoWoW patch: install() in
+	// visualPacks.ts refuses to write over a same-named file it doesn't
+	// recognize, and if OctoWoW ever ships official content under one of
+	// these letters the game-sync path in updater.ts is left free to
+	// overwrite it (server compatibility wins over a cosmetic pack) —
+	// refresh() notices the size no longer matches and drops the pack's
+	// stale "installed" record on its own.
 	filename: string;
 };
 
@@ -79,7 +85,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 			"Character and NPC visuals, including Turtle WoW's custom races (Goblin, High Elf, Naga and others). Foundation for the Female, HD, and Ultra HD packs below.",
 		version: 'v5.5.1',
 		serverSpecific: true,
-		file: { url: `${CDN}/patch-A.mpq`, size: 1748152913, filename: 'patch-reforged-A.mpq' }
+		file: { url: `${CDN}/patch-A.mpq`, size: 1748152913, filename: 'patch-A.mpq' }
 	},
 	{
 		id: 'B',
@@ -89,7 +95,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		description: 'Part of the Environment & World set — install together with Doodads and Environment, or not at all.',
 		version: 'v5.0.0',
 		bundleGroup: 'BDE',
-		file: { url: `${CDN}/patch-B.mpq`, size: 1608961816, filename: 'patch-reforged-B.mpq' }
+		file: { url: `${CDN}/patch-B.mpq`, size: 1608961816, filename: 'patch-B.mpq' }
 	},
 	{
 		id: 'C',
@@ -98,7 +104,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		icon: '🐉',
 		description: 'Creatures and related assets for the classic client.',
 		version: 'v5.5.1',
-		file: { url: `${CDN}/patch-C.mpq`, size: 2083036611, filename: 'patch-reforged-C.mpq' }
+		file: { url: `${CDN}/patch-C.mpq`, size: 2083036611, filename: 'patch-C.mpq' }
 	},
 	{
 		id: 'D',
@@ -108,7 +114,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		description: 'World doodads and textures — part of the Environment & World set.',
 		version: 'v5.5.2',
 		bundleGroup: 'BDE',
-		file: { url: `${CDN}/patch-D.mpq`, size: 1648472586, filename: 'patch-reforged-D.mpq' }
+		file: { url: `${CDN}/patch-D.mpq`, size: 1648472586, filename: 'patch-D.mpq' }
 	},
 	{
 		id: 'E',
@@ -118,7 +124,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		description: 'Environment textures and world visuals, including extended draw distance — part of the Environment & World set.',
 		version: 'v5.4.1',
 		bundleGroup: 'BDE',
-		file: { url: `${CDN}/patch-E.mpq`, size: 719685533, filename: 'patch-reforged-E.mpq' }
+		file: { url: `${CDN}/patch-E.mpq`, size: 719685533, filename: 'patch-E.mpq' }
 	},
 	{
 		id: 'G',
@@ -127,7 +133,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		icon: '⚔️',
 		description: 'Gear and weapon visuals used by multiple other packs below.',
 		version: 'v5.4.1',
-		file: { url: `${CDN}/patch-G.mpq`, size: 774538222, filename: 'patch-reforged-G.mpq' }
+		file: { url: `${CDN}/patch-G.mpq`, size: 774538222, filename: 'patch-G.mpq' }
 	},
 	{
 		id: 'I',
@@ -137,7 +143,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		description: 'Interface visuals and selection-circle texture support, tuned for the Turtle WoW client specifically.',
 		version: 'v5.3.0',
 		serverSpecific: true,
-		file: { url: `${CDN}/patch-I.mpq`, size: 162091469, filename: 'patch-reforged-I.mpq' }
+		file: { url: `${CDN}/patch-I.mpq`, size: 162091469, filename: 'patch-I.mpq' }
 	},
 	{
 		id: 'L',
@@ -152,7 +158,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 				id: 'regular',
 				label: 'Regular',
 				note: 'by Watchers3D',
-				file: { url: `${CDN}/patch-L.mpq`, size: 37330631, filename: 'patch-reforged-L.mpq' }
+				file: { url: `${CDN}/patch-L.mpq`, size: 37330631, filename: 'patch-L.mpq' }
 			},
 			{
 				id: 'thicc',
@@ -161,7 +167,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 				file: {
 					url: `${CDN}/extras/patch-L.mpq`,
 					size: 53272447,
-					filename: 'patch-reforged-L.mpq'
+					filename: 'patch-L.mpq'
 				}
 			}
 		]
@@ -174,7 +180,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		description: "Enhanced maps and loading screens, including Turtle WoW's custom zones and continents.",
 		version: 'v5.4.2',
 		serverSpecific: true,
-		file: { url: `${CDN}/patch-M.mpq`, size: 438564005, filename: 'patch-reforged-M.mpq' }
+		file: { url: `${CDN}/patch-M.mpq`, size: 438564005, filename: 'patch-M.mpq' }
 	},
 	{
 		id: 'N',
@@ -183,7 +189,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		icon: '🌑',
 		description: 'A more atmospheric night cycle.',
 		version: 'v5.0.0',
-		file: { url: `${CDN}/patch-N.mpq`, size: 201362, filename: 'patch-reforged-N.mpq' }
+		file: { url: `${CDN}/patch-N.mpq`, size: 201362, filename: 'patch-N.mpq' }
 	},
 	{
 		id: 'P',
@@ -192,7 +198,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		icon: '🪄',
 		description: 'Spell visuals and effect enhancements.',
 		version: 'v5.5.0',
-		file: { url: `${CDN}/patch-P.mpq`, size: 7272085, filename: 'patch-reforged-P.mpq' }
+		file: { url: `${CDN}/patch-P.mpq`, size: 7272085, filename: 'patch-P.mpq' }
 	},
 	{
 		id: 'S',
@@ -201,7 +207,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		icon: '🎵',
 		description: 'Sound and music enhancements.',
 		version: 'v5.3.4',
-		file: { url: `${CDN}/patch-S.mpq`, size: 262721653, filename: 'patch-reforged-S.mpq' }
+		file: { url: `${CDN}/patch-S.mpq`, size: 262721653, filename: 'patch-S.mpq' }
 	},
 	{
 		id: 'T',
@@ -220,14 +226,14 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 				file: {
 					url: `${CDN}/extras/patch-T.mpq`,
 					size: 541957195,
-					filename: 'patch-reforged-T.mpq'
+					filename: 'patch-T.mpq'
 				}
 			},
 			{
 				id: 'ultraBase',
 				label: 'Ultra Base',
 				note: 'Required if installing Ultra HD',
-				file: { url: `${CDN}/patch-T.mpq`, size: 499342621, filename: 'patch-reforged-T.mpq' }
+				file: { url: `${CDN}/patch-T.mpq`, size: 499342621, filename: 'patch-T.mpq' }
 			}
 		]
 	},
@@ -240,7 +246,7 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 			'Maximum-detail textures for characters and gear, built on top of the HD pack (Ultra Base variant). Very large download.',
 		version: 'v5.5.0',
 		requires: ['A', 'G', 'T'],
-		file: { url: `${CDN}/patch-U.mpq`, size: 1662548731, filename: 'patch-reforged-U.mpq' }
+		file: { url: `${CDN}/patch-U.mpq`, size: 1662548731, filename: 'patch-U.mpq' }
 	}
 ];
 

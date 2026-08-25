@@ -11,6 +11,9 @@ export const visualPacksRouter = createTRPCRouter({
 	install: publicProcedure
 		.input(z.object({ id: VisualPackIdSchema, variant: z.string().optional() }))
 		.mutation(({ input }) => VisualPacks.install(input.id, input.variant)),
+	setEnabled: publicProcedure
+		.input(z.object({ id: VisualPackIdSchema, enabled: z.boolean() }))
+		.mutation(({ input }) => VisualPacks.setEnabled(input.id, input.enabled)),
 	uninstall: publicProcedure
 		.input(VisualPackIdSchema)
 		.mutation(({ input }) => VisualPacks.uninstall(input)),
