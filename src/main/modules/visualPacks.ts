@@ -289,8 +289,62 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 		}
 	}
 
+	// A pack's file can exist on disk with no tracked record for it — e.g.
+	// clientDir got pointed elsewhere and back (refresh() at the other
+	// location found nothing there and dropped the record, with no way to
+	// know the real file was untouched the whole time), or the Data folder
+	// was restored from a backup/copy. Re-adopts any catalog-matching file
+	// found by exact size before falling through to "not installed", so a
+	// legitimately-already-correct file doesn't also make install() refuse
+	// it later as "unrecognized".
+	async #rediscoverUntracked() {
+		const dataDir = this.#dataDir();
+		if (!dataDir) return;
+		const names = new Set(await fs.readdir(dataDir).catch(() => []));
+		for (const pack of VISUAL_PACKS) {
+			if (Preferences.data.visualPacks?.[pack.id]) continue;
+			const candidates: { variant?: string; file: VisualPackFile }[] = pack.file
+				? [{ file: pack.file }]
+				: (pack.variants ?? []).map(v => ({ variant: v.id, file: v.file }));
+
+			for (const { variant, file } of candidates) {
+				const parkedName = parkedSuffix(file.filename);
+				const liveStat = names.has(file.filename)
+					? await fs.stat(path.join(dataDir, file.filename)).catch(() => null)
+					: null;
+				const parkedStat = names.has(parkedName)
+					? await fs.stat(path.join(dataDir, parkedName)).catch(() => null)
+					: null;
+				const enabled =
+					liveStat?.size === file.size ? true : parkedStat?.size === file.size ? false : null;
+				if (enabled === null) continue;
+
+				Preferences.data = {
+					visualPacks: {
+						...Preferences.data.visualPacks,
+						[pack.id]: {
+							variant,
+							filename: file.filename,
+							size: file.size,
+							enabled,
+							// re-adopted sight unseen — if this file's catalog entry
+							// declares a hash, let #verifyContentHashes actually check
+							// it rather than assuming it's the current release
+							contentVerified: !file.sha256
+						}
+					}
+				};
+				Logger.info(
+					`Visual pack "${pack.id}": re-adopted untracked ${enabled ? file.filename : parkedName} (size matched)`
+				);
+				break;
+			}
+		}
+	}
+
 	async refresh() {
 		await this.#migrateLegacyFilenames();
+		await this.#rediscoverUntracked();
 		await this.#verifyContentHashes();
 		await this.#cleanupOrphanedDownloads();
 		const dataDir = this.#dataDir();
