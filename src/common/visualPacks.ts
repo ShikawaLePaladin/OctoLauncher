@@ -132,15 +132,13 @@ export const VISUAL_PACKS: VisualPackEntry[] = [
 		// set after the fix. sha256 lets refresh() catch anyone who
 		// downloaded the broken file before this fix shipped (same byte
 		// size, so the existing size check alone can't tell them apart).
-		// URL points at patch-C-v2.mpq rather than reusing patch-C.mpq:
-		// the CDN's public r2.dev URL cached the broken file at the edge
-		// with no way to purge it (that's only available on a custom
-		// domain, not the shared r2.dev one), so overwriting the same
-		// path kept serving stale bytes indefinitely. filename below is
-		// unrelated to the URL — it's the name this still installs as on
-		// disk (the client only recognizes patch-C.mpq).
+		// Hosted on a separate R2 bucket from the main CDN (not ${CDN}) —
+		// the fixed file lives here until it's folded into the main patch
+		// host; filename below is unrelated to this URL, it's just the
+		// name this still installs as on disk (the client only recognizes
+		// patch-C.mpq).
 		file: {
-			url: `${CDN}/patch-C-v2.mpq`,
+			url: 'https://pub-0861034833294a50ba7dd2810855e862.r2.dev/patches/patch-C-v2.mpq',
 			size: 2083036611,
 			filename: 'patch-C.mpq',
 			sha256: 'da0a667cf93f0c36860dbd8567fb8e1dc22a1b7f77fc6257a195464437e09e2d'
