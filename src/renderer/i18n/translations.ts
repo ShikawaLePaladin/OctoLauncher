@@ -15,6 +15,8 @@ const enUS: Dict = {
 	'modsPlus.turtleWarning':
 		'These packs are built for Turtle WoW, not OctoWoW. Packs marked below reference Turtle-specific content and may not perfectly match what OctoWoW added on top of vanilla.',
 	'modsPlus.serverSpecificWarning': 'Turtle WoW-tuned — may mismatch OctoWoW-specific content',
+	'modsPlus.memoryWarning':
+		"WoW 1.12 is a 32-bit game — combining several large HD packs can run it out of address space during play (a crash mid-zone-change, not at launch). If that happens, lowering Render distance in Tweaks reduces how much is loaded at once and has fixed it in testing; installing fewer packs at a time works too.",
 	'modsPlus.crashWarning':
 		'Confirmed to crash the game on its own during testing — not just in combination with other packs. Not recommended until this is investigated further.',
 	'modsPlus.requires': 'Requires: {packs}',

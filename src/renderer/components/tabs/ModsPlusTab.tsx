@@ -224,6 +224,10 @@ const ModsPlusTab = () => {
 				<AlertTriangle size={12} className="shrink-0" />
 				{t('modsPlus.turtleWarning')}
 			</p>
+			<p className="s1 flex items-center gap-1 text-orange">
+				<AlertTriangle size={12} className="shrink-0" />
+				{t('modsPlus.memoryWarning')}
+			</p>
 			<hr />
 			<div
 				ref={scrollRef}
