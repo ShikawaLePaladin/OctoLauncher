@@ -49,6 +49,7 @@ const DiscoverTab = () => {
 	const [filter, setFilter] = useState('');
 	const [sort, setSort] = useState<SortMode>('popular');
 	const [category, setCategory] = useState<CategoryFilter>('all');
+	const [superwowOnly, setSuperwowOnly] = useState(false);
 	const scrollRef = useScrollHint<HTMLDivElement>();
 
 	const items = useMemo(() => {
@@ -56,6 +57,7 @@ const DiscoverTab = () => {
 		const filtered = (catalog ?? []).filter(
 			a =>
 				(category === 'all' || a.category === category) &&
+				(!superwowOnly || !!a.superwow) &&
 				(!q ||
 					a.name.toLocaleLowerCase().includes(q) ||
 					a.description?.toLocaleLowerCase().includes(q))
@@ -70,13 +72,18 @@ const DiscoverTab = () => {
 			return (b.stars ?? -1) - (a.stars ?? -1);
 		});
 		return sorted;
-	}, [catalog, filter, sort, category]);
+	}, [catalog, filter, sort, category, superwowOnly]);
 
 	const counts = useMemo(() => {
 		const c: Partial<Record<CategoryFilter, number>> = { all: catalog?.length ?? 0 };
 		for (const a of catalog ?? []) c[a.category] = (c[a.category] ?? 0) + 1;
 		return c;
 	}, [catalog]);
+
+	const superwowCount = useMemo(
+		() => (catalog ?? []).filter(a => !!a.superwow).length,
+		[catalog]
+	);
 
 	return (
 		<div className="tw-surface flex min-h-0 flex-grow flex-col gap-3">
@@ -125,6 +132,19 @@ const DiscoverTab = () => {
 							) : null}
 						</TextButton>
 					))}
+					{superwowCount > 0 && (
+						<TextButton
+							onClick={() => setSuperwowOnly(v => !v)}
+							active={superwowOnly}
+							className={cls(
+								's1 border border-blueGray/20 !px-2 !py-0.5',
+								superwowOnly && 'border-orange bg-orange/10'
+							)}
+						>
+							{t('discover.superwowFilter')}
+							<span className="ml-1 text-blueGray/50">{superwowCount}</span>
+						</TextButton>
+					)}
 				</div>
 				<hr />
 			<div
@@ -161,6 +181,22 @@ const DiscoverTab = () => {
 								<p className="s1 min-h-[40px] text-blueGray">
 									{a.description || t('discover.noDescription')}
 								</p>
+								{a.superwow && (
+									<span
+										className={cls(
+											's1 self-start border px-1',
+											a.superwow === 'requires'
+												? 'border-orange/40 text-orange'
+												: 'border-blueGray/40 text-blueGray'
+										)}
+									>
+										{t(
+											a.superwow === 'requires'
+												? 'discover.superwowRequires'
+												: 'discover.superwowEnhanced'
+										)}
+									</span>
+								)}
 								<div className="flex items-center gap-3">
 									{a.stars != null && (
 										<span className="s1 flex items-center gap-1 text-yellow">
