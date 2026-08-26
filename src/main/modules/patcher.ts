@@ -501,7 +501,12 @@ export const patchConfig = async (forceTweaks = false) => {
 		patchList: configWtf['patchList'] ?? Servers[server].patchList,
 		realmName: configWtf['realmName'] ?? Servers[server].realmName,
 		hwDetect: 0,
-		BackgroundSound: config.soundInBackground ? 1 : 0
+		BackgroundSound: config.soundInBackground ? 1 : 0,
+		// the engine throttles its own frame rate once the window loses OS
+		// focus (e.g. the cursor moving to a second monitor) — 0 means
+		// unlimited, same as maxFPS itself; dxvk's own maxFrameRate cap above
+		// still applies as the real ceiling either way
+		maxFPSBk: config.limitFpsInBackground ? 30 : 0
 	};
 
 	const repaired = await repairResolution(

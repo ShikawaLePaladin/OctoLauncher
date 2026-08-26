@@ -119,6 +119,10 @@ const enUS: Dict = {
 	'tweaks.soundInBackground.label': 'Background sounds',
 	'tweaks.soundInBackground.text':
 		'Allows game sounds to play while the game is minimized.',
+	'tweaks.performanceHeading': 'Performance',
+	'tweaks.limitFpsInBackground.label': 'Limit FPS in background',
+	'tweaks.limitFpsInBackground.text':
+		"Reduces the game's framerate while it's unfocused (e.g. alt-tabbed, or the cursor on a second monitor) to save CPU. Disabled by default — enabling this is what can cause the game to feel locked at a low framerate when it loses focus.",
 	'tweaks.applyFailed': 'Failed to apply tweaks: {message}',
 	'tweaks.highlighted': 'Highlighted',
 	'tweaks.recommendedNote': 'options are recommended and enabled by default',
@@ -391,6 +395,10 @@ const deDE: Dict = {
 	'tweaks.soundInBackground.label': 'Hintergrundton',
 	'tweaks.soundInBackground.text':
 		'Lässt die Spieltöne weiterlaufen, während das Spiel minimiert ist.',
+	'tweaks.performanceHeading': 'Leistung',
+	'tweaks.limitFpsInBackground.label': 'Bildrate im Hintergrund begrenzen',
+	'tweaks.limitFpsInBackground.text':
+		'Reduziert die Bildrate, wenn das Spiel nicht im Fokus ist (z. B. beim Alt-Tab oder wenn sich der Cursor auf einem zweiten Monitor befindet), um CPU zu sparen. Standardmäßig deaktiviert — wird diese Option aktiviert, kann das Spiel bei Fokusverlust in einer niedrigen Bildrate hängen bleiben.',
 	'tweaks.applyFailed': 'Tweaks konnten nicht angewendet werden: {message}',
 	'tweaks.highlighted': 'Hervorgehoben',
 	'tweaks.recommendedNote':
@@ -621,6 +629,10 @@ const zhCN: Dict = {
 	'tweaks.soundsHeading': '声音',
 	'tweaks.soundInBackground.label': '后台声音',
 	'tweaks.soundInBackground.text': '允许游戏在最小化时继续播放声音。',
+	'tweaks.performanceHeading': '性能',
+	'tweaks.limitFpsInBackground.label': '后台限制帧率',
+	'tweaks.limitFpsInBackground.text':
+		'游戏失去焦点时（例如切换到其他窗口，或光标移到第二块显示器上）降低帧率以节省 CPU。默认关闭——开启此选项可能导致游戏在失去焦点时卡在很低的帧率。',
 	'tweaks.applyFailed': '应用优化失败：{message}',
 	'tweaks.highlighted': '已高亮',
 	'tweaks.recommendedNote': '选项为推荐项，默认已启用',
@@ -837,6 +849,10 @@ const esES: Dict = {
 	'tweaks.soundInBackground.label': 'Sonidos en segundo plano',
 	'tweaks.soundInBackground.text':
 		'Permite que el sonido del juego se reproduzca mientras está minimizado.',
+	'tweaks.performanceHeading': 'Rendimiento',
+	'tweaks.limitFpsInBackground.label': 'Limitar FPS en segundo plano',
+	'tweaks.limitFpsInBackground.text':
+		'Reduce la tasa de fotogramas mientras el juego no tiene el foco (por ejemplo, al cambiar de ventana o mover el cursor a un segundo monitor) para ahorrar CPU. Desactivado por defecto — activar esta opción puede hacer que el juego se sienta bloqueado a una tasa de fotogramas baja al perder el foco.',
 	'tweaks.applyFailed': 'No se han podido aplicar los ajustes: {message}',
 	'tweaks.highlighted': 'Destacado',
 	'tweaks.recommendedNote':
@@ -1069,6 +1085,10 @@ const ptBR: Dict = {
 	'tweaks.soundInBackground.label': 'Sons em segundo plano',
 	'tweaks.soundInBackground.text':
 		'Permite que os sons do jogo continuem tocando enquanto o jogo está minimizado.',
+	'tweaks.performanceHeading': 'Desempenho',
+	'tweaks.limitFpsInBackground.label': 'Limitar FPS em segundo plano',
+	'tweaks.limitFpsInBackground.text':
+		'Reduz a taxa de quadros do jogo enquanto ele está sem foco (ex: ao trocar de janela, ou com o cursor em um segundo monitor) para economizar CPU. Desativado por padrão — ativar isso pode fazer o jogo parecer travado em uma taxa de quadros baixa ao perder o foco.',
 	'tweaks.applyFailed': 'Falha ao aplicar os ajustes: {message}',
 	'tweaks.highlighted': 'Destacadas',
 	'tweaks.recommendedNote': 'opções são recomendadas e ativadas por padrão',
@@ -1298,6 +1318,10 @@ const ruRU: Dict = {
 	'tweaks.soundInBackground.label': 'Звук в фоне',
 	'tweaks.soundInBackground.text':
 		'Позволяет воспроизводить звуки игры, когда она свёрнута.',
+	'tweaks.performanceHeading': 'Производительность',
+	'tweaks.limitFpsInBackground.label': 'Ограничивать FPS в фоне',
+	'tweaks.limitFpsInBackground.text':
+		'Снижает частоту кадров, пока игра не в фокусе (например, при переключении окон или наведении курсора на второй монитор), чтобы сэкономить ресурсы процессора. По умолчанию отключено — включение этой опции может привести к тому, что игра будет "залипать" на низком FPS при потере фокуса.',
 	'tweaks.applyFailed': 'Не удалось применить твики: {message}',
 	'tweaks.highlighted': 'Выделенные',
 	'tweaks.recommendedNote': 'параметры рекомендуются и включены по умолчанию',

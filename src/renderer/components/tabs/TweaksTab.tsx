@@ -197,6 +197,16 @@ const TweaksTab = () => {
 					text={t('tweaks.soundInBackground.text')}
 					recommended
 				/>
+
+				<h4 className="tw-color col-span-3 mt-3">
+					{t('tweaks.performanceHeading')}
+				</h4>
+				<Item
+					form={form}
+					id="limitFpsInBackground"
+					label={t('tweaks.limitFpsInBackground.label')}
+					text={t('tweaks.limitFpsInBackground.text')}
+				/>
 			</div>
 			<hr />
 			<div className="-mb-4 -mt-3 flex items-center gap-2 py-2">

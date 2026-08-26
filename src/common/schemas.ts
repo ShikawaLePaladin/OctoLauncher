@@ -25,7 +25,8 @@ export const ConfigWtfSchema = z.object({
 	farClip: f.number(777),
 	frillDistance: f.number(70),
 	cameraDistance: f.number(50),
-	soundInBackground: f.boolean(true)
+	soundInBackground: f.boolean(true),
+	limitFpsInBackground: f.boolean(false)
 });
 export type ConfigWtfSchema = z.infer<typeof ConfigWtfSchema>;
 
