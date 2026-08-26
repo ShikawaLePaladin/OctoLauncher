@@ -411,7 +411,13 @@ class ModsClass extends Observable<ModsStatus> {
 							files.map(rel => fs.pathExists(path.join(clientDir, rel)))
 						)
 					).every(Boolean);
-				installedVersion = enabled ? effective.version : undefined;
+				// "installed" must reflect the file actually being on disk, not
+				// just the enabled toggle — #reconcileGithubMods() (called right
+				// after this in applyAll()'s torrent-mode path) uses exactly this
+				// field to decide whether a newly-enabled mod still needs
+				// installing; treating "enabled" alone as "installed" meant it
+				// always looked already-installed and #install() never ran.
+				installedVersion = enabled && (files.length === 0 || present) ? effective.version : undefined;
 				if (enabled && files.length > 0 && !present) missing.push(effective.name);
 				// only point dlls.txt at a file actually on disk
 				if (clientDir && effective.registerInDllsTxt)
@@ -610,12 +616,24 @@ class ModsClass extends Observable<ModsStatus> {
 		}
 		// commit the player's own DLL toggles first
 		await this.#applyCustomDlls(clientDir);
-		// torrent mode: mods ship in the client; reconcile dlls.txt. The
-		// seeder holds files open, so release it for the dxvk park/restore.
+		// torrent mode syncs OctoWoW's own client content only — every mod
+		// here is a separately-hosted GitHub release/zip, so without also
+		// reconciling those, enabling one for the first time (e.g.
+		// ClassicAPI, SuperWoW) never actually downloaded it: applyAll()
+		// used to just verify() and return, and verify()'s torrent branch
+		// only ever checks whether a file already exists, it never fetches
+		// one. dxvk is the one exception, since verify() above already
+		// installs/repairs it inline by content hash (park/restore), so
+		// it's excluded here to avoid reinstalling over that. The seeder
+		// holds files open, so release it for the duration.
 		if (isTorrentMode()) {
 			stopSeeding();
 			try {
 				await this.verify();
+				const failures = await this.#reconcileGithubMods(opts, new Set(['dxvk']));
+				await this.verify();
+				for (const [id, error] of failures)
+					this.#patchRow(id, { state: 'error', error });
 			} finally {
 				await Updater.refreshSeeding().catch(() => undefined);
 			}
@@ -629,7 +647,24 @@ class ModsClass extends Observable<ModsStatus> {
 		this._value = { ...this._value, state: 'busy' };
 		this._notifyObservers();
 
-		const queue = [...this._value.mods];
+		const failures = await this.#reconcileGithubMods(opts);
+
+		this._value = { ...this._value, state: 'idle' };
+		await this.verify();
+		for (const [id, error] of failures)
+			this.#patchRow(id, { state: 'error', error });
+		await Updater.verify();
+	}
+
+	// installs/uninstalls every GitHub-sourced mod whose enabled state
+	// doesn't match reality yet. Shared between the normal and torrent-mode
+	// paths of applyAll() — skipIds lets a caller exclude a mod it's
+	// already handling itself (torrent mode does this for dxvk).
+	async #reconcileGithubMods(
+		opts: { repairOnly?: boolean },
+		skipIds: Set<ModId> = new Set()
+	): Promise<Map<ModId, string>> {
+		const queue = [...this._value.mods].filter(r => !skipIds.has(r.id));
 		queue.sort((a, b) => {
 			if (a.id === 'vanillaFixes') return -1;
 			if (b.id === 'vanillaFixes') return 1;
@@ -664,12 +699,7 @@ class ModsClass extends Observable<ModsStatus> {
 				failures.set(m.id, looksLikeAvBlock(msg) ? AV_ERROR : msg);
 			}
 		}
-
-		this._value = { ...this._value, state: 'idle' };
-		await this.verify();
-		for (const [id, error] of failures)
-			this.#patchRow(id, { state: 'error', error });
-		await Updater.verify();
+		return failures;
 	}
 
 	async #install(m: ModEntry) {
@@ -708,9 +738,6 @@ class ModsClass extends Observable<ModsStatus> {
 				return;
 			}
 		}
-		// torrent mode ships mod binaries with the client; dxvk is the
-		// exception (unsynced), a fresh enable with no parked copy downloads
-		if (isTorrentMode() && m.id !== 'dxvk') return;
 		if (!clientDir) throw new Error('No client dir');
 		if (m.source.kind === 'managed') return;
 
