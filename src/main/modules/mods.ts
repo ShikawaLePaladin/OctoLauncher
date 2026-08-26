@@ -664,6 +664,7 @@ class ModsClass extends Observable<ModsStatus> {
 		opts: { repairOnly?: boolean },
 		skipIds: Set<ModId> = new Set()
 	): Promise<Map<ModId, string>> {
+		const clientDir = Preferences.data?.clientDir;
 		const queue = [...this._value.mods].filter(r => !skipIds.has(r.id));
 		queue.sort((a, b) => {
 			if (a.id === 'vanillaFixes') return -1;
@@ -677,8 +678,23 @@ class ModsClass extends Observable<ModsStatus> {
 			if (!base) continue;
 			const m = resolveModEntry(base);
 
+			// row.installedVersion isn't trustworthy here: in torrent mode
+			// verify() derives it from the enabled toggle rather than from
+			// disk (see the comment where it's set), so a freshly-disabled
+			// mod would look already-uninstalled and skip #uninstall(), and
+			// before that fix a freshly-enabled one looked already-installed
+			// and skipped #install(). Checking the actual target files is
+			// the one signal that's correct regardless of what set enabled.
+			const files = modTargetFiles(m);
+			const isInstalled =
+				!!clientDir &&
+				files.length > 0 &&
+				(
+					await Promise.all(
+						files.map(rel => fs.pathExists(path.join(clientDir, rel)))
+					)
+				).every(Boolean);
 			const wantInstalled = row.enabled;
-			const isInstalled = !!row.installedVersion;
 			const updateAvailable =
 				isInstalled &&
 				row.installedVersion !== row.latestVersion &&
