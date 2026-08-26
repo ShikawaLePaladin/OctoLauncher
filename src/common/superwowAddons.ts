@@ -8,7 +8,7 @@
 const normalizeRepo = (git: string): string =>
 	git
 		.replace(/^https?:\/\/(www\.)?github\.com\//i, '')
-		.replace(/\.git$/i, '')
+		.replace(/\.git\/?$/i, '')
 		.replace(/\/$/, '')
 		.toLowerCase();
 

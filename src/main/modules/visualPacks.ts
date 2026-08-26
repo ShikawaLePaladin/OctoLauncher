@@ -309,14 +309,14 @@ class VisualPacksClass extends Observable<VisualPacksStatus> {
 
 			for (const { variant, file } of candidates) {
 				const parkedName = parkedSuffix(file.filename);
-				const liveStat = names.has(file.filename)
-					? await fs.stat(path.join(dataDir, file.filename)).catch(() => null)
-					: null;
-				const parkedStat = names.has(parkedName)
-					? await fs.stat(path.join(dataDir, parkedName)).catch(() => null)
-					: null;
-				const enabled =
-					liveStat?.size === file.size ? true : parkedStat?.size === file.size ? false : null;
+				const liveMatches =
+					names.has(file.filename) &&
+					(await isOurFile(path.join(dataDir, file.filename), file.size));
+				const parkedMatches =
+					!liveMatches &&
+					names.has(parkedName) &&
+					(await isOurFile(path.join(dataDir, parkedName), file.size));
+				const enabled = liveMatches ? true : parkedMatches ? false : null;
 				if (enabled === null) continue;
 
 				Preferences.data = {

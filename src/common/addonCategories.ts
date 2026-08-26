@@ -17,11 +17,18 @@ export const ADDON_CATEGORIES = [
 export type AddonCategory = (typeof ADDON_CATEGORIES)[number];
 
 // checked in order — first match wins, so put the more specific categories
-// ahead of broad ones like 'ui'. "quest" and a few others are deliberately
-// unbounded (no \b) so they still match inside a compound addon name like
-// "pfQuest" or "SimpleActionSets", where a word-boundary check would only
-// ever match against the (often unhelpful, sometimes empty) description.
-const RULES: [AddonCategory, RegExp][] = [
+// ahead of broad ones like 'ui'. 'quests' and 'combat' also accept a
+// camelCase compound-name signal (a lowercase letter directly followed by
+// "Quest"/"Plates", e.g. "pfQuest", "GudaPlates") in addition to their
+// word-bounded keyword — checked case-sensitively so it can't degrade back
+// into the substring match ("request", "templates") that a case-insensitive
+// version of the same pattern would reintroduce.
+const CAMEL_QUEST = /[a-z]Quest/;
+const CAMEL_PLATES = /[a-z]Plates/;
+
+type Matcher = RegExp | ((text: string) => boolean);
+
+const RULES: [AddonCategory, Matcher][] = [
 	[
 		'hardcore',
 		/\bhardcore\b|\bhc\b|death.?log|unitscan/i
@@ -40,11 +47,17 @@ const RULES: [AddonCategory, RegExp][] = [
 	],
 	[
 		'quests',
-		/quest|\bmap\b|zone level|travel|leveling|\brested\b|\bxp\b|\bflight\b/i
+		(text: string) =>
+			/\bquest\b|\bmap\b|zone level|travel|leveling|\brested\b|\bxp\b|\bflight\b/i.test(
+				text
+			) || CAMEL_QUEST.test(text)
 	],
 	[
 		'combat',
-		/damage meter|\bdps\b|\bproc\b|combat|castbar|nameplate|plates\b|low health|heartbeat|power.?auras?|auras?\b|swing timer/i
+		(text: string) =>
+			/damage meter|\bdps\b|\bproc\b|combat|castbar|nameplate|\bplates\b|low health|heartbeat|power.?auras?|auras?\b|swing timer/i.test(
+				text
+			) || CAMEL_PLATES.test(text)
 	],
 	[
 		'social',
@@ -65,14 +78,16 @@ const NAME_OVERRIDES: Record<string, AddonCategory> = {
 	bigwigs: 'raid',
 	wim: 'social',
 	turtlerp: 'social',
-	guda: 'combat',
-	gudaplates: 'combat'
+	guda: 'combat'
 };
 
 export const categorizeAddon = (name: string, description?: string): AddonCategory => {
 	const override = NAME_OVERRIDES[name.toLowerCase()];
 	if (override) return override;
 	const text = `${name} ${description ?? ''}`;
-	for (const [category, pattern] of RULES) if (pattern.test(text)) return category;
+	for (const [category, matcher] of RULES) {
+		const matches = typeof matcher === 'function' ? matcher(text) : matcher.test(text);
+		if (matches) return category;
+	}
 	return 'misc';
 };

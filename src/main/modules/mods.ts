@@ -543,8 +543,8 @@ class ModsClass extends Observable<ModsStatus> {
 		// companion addons (settings panels, API bridges) are a separate,
 		// independent install from the mod's own DLL — enabling them here
 		// mirrors how the Addons/Discover tabs install directly with no
-		// staged "Apply" step, and it works under torrent mode too, where
-		// applyAll() never reaches the per-mod #install() loop below.
+		// staged "Apply" step, so the companion shows up immediately rather
+		// than waiting for the user to hit "Apply".
 		const companions = enabled ? getMod(id)?.companionAddons : undefined;
 		if (companions?.length)
 			Addons.update(companions).catch(e =>
@@ -616,6 +616,10 @@ class ModsClass extends Observable<ModsStatus> {
 		}
 		// commit the player's own DLL toggles first
 		await this.#applyCustomDlls(clientDir);
+		if (this._value.state === 'busy') {
+			Logger.warn('applyAll already running; ignoring re-entrant call.');
+			return;
+		}
 		// torrent mode syncs OctoWoW's own client content only — every mod
 		// here is a separately-hosted GitHub release/zip, so without also
 		// reconciling those, enabling one for the first time (e.g.
@@ -625,8 +629,13 @@ class ModsClass extends Observable<ModsStatus> {
 		// one. dxvk is the one exception, since verify() above already
 		// installs/repairs it inline by content hash (park/restore), so
 		// it's excluded here to avoid reinstalling over that. The seeder
-		// holds files open, so release it for the duration.
+		// holds files open, so release it for the duration. This now does
+		// real network I/O (downloads/extracts/uninstalls), so it shares the
+		// same busy-state guard as the non-torrent path below instead of
+		// running unguarded.
 		if (isTorrentMode()) {
+			this._value = { ...this._value, state: 'busy' };
+			this._notifyObservers();
 			stopSeeding();
 			try {
 				await this.verify();
@@ -635,12 +644,9 @@ class ModsClass extends Observable<ModsStatus> {
 				for (const [id, error] of failures)
 					this.#patchRow(id, { state: 'error', error });
 			} finally {
+				this._value = { ...this._value, state: 'idle' };
 				await Updater.refreshSeeding().catch(() => undefined);
 			}
-			return;
-		}
-		if (this._value.state === 'busy') {
-			Logger.warn('applyAll already running; ignoring re-entrant call.');
 			return;
 		}
 		await this.verify();
@@ -849,8 +855,15 @@ class ModsClass extends Observable<ModsStatus> {
 		this.#patchRow(m.id, { state: 'uninstalling', error: undefined });
 
 		const cur = Preferences.data?.mods?.[m.id];
+		// installedFiles is empty for a mod whose file was already on disk
+		// before it ever went through #install() — e.g. #reconcileGithubMods
+		// now detects "installed" straight from disk rather than trusting
+		// this record (see the comment there), so a mod can reach here with
+		// nothing tracked. Fall back to the mod's own known target files so
+		// disabling it actually removes them instead of silently no-oping.
+		const tracked = cur?.installedFiles ?? [];
 		// dxvk: park instead of delete so re-enable is instant and offline
-		const files = [...(cur?.installedFiles ?? [])].filter(
+		const files = (tracked.length > 0 ? tracked : modTargetFiles(m)).filter(
 			f => !(m.id === 'dxvk' && /d3d9\.dll$/i.test(f))
 		);
 		if (m.id === 'dxvk') {
