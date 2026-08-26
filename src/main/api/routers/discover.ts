@@ -1,7 +1,7 @@
 import { fetchAddons } from '~main/modules/addons';
 import { getAddonStats } from '~main/modules/addonStats';
 import { categorizeAddon } from '~common/addonCategories';
-import { getSuperWowTier } from '~common/superwowAddons';
+import { getSuperWowTier, getRelatedClientMods } from '~common/superwowAddons';
 
 import { createTRPCRouter, publicProcedure } from '../trpc';
 
@@ -13,7 +13,8 @@ export const discoverRouter = createTRPCRouter({
 			...a,
 			...stats[a.git],
 			category: categorizeAddon(a.name, a.description),
-			superwow: getSuperWowTier(a.git, a.name, a.description)
+			superwow: getSuperWowTier(a.git, a.name, a.description),
+			relatedMods: getRelatedClientMods(a.name, a.description)
 		}));
 	})
 });

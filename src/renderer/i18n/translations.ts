@@ -52,6 +52,7 @@ const enUS: Dict = {
 	'discover.superwowFilter': 'SuperWoW',
 	'discover.superwowRequires': 'Requires SuperWoW',
 	'discover.superwowEnhanced': 'Better with SuperWoW',
+	'discover.relatedMod': 'For {mod}',
 	'discover.noDescription': 'No description available.',
 	'discover.updated': 'Updated {ago}',
 	'discover.timeAgo.today': 'today',

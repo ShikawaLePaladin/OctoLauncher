@@ -95,3 +95,23 @@ export const getSuperWowTier = (
 	if (description && /superwow/i.test(description)) return 'enhanced';
 	return null;
 };
+
+// Lighter-weight than the SuperWoW tables above (no wiki-sourced allow
+// list, just a name/description keyword check) — good enough for the other
+// client mods this launcher itself installs (see src/common/mods.ts),
+// since an addon built specifically to configure one of them tends to say
+// so plainly, e.g. "Settings panel for the Nampower spellqueue addon".
+// SuperWoW is deliberately excluded here since getSuperWowTier already
+// covers it with a more precise, sourced signal.
+const OTHER_CLIENT_MODS: { label: string; pattern: RegExp }[] = [
+	{ label: 'Nampower', pattern: /nampower/i },
+	{ label: 'UnitXP', pattern: /unitxp/i },
+	{ label: 'ClassicAPI', pattern: /classicapi/i }
+];
+
+export const getRelatedClientMods = (name: string, description?: string): string[] => {
+	const text = `${name} ${description ?? ''}`;
+	return OTHER_CLIENT_MODS.filter(({ pattern }) => pattern.test(text)).map(
+		({ label }) => label
+	);
+};

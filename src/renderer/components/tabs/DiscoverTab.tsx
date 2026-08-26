@@ -181,21 +181,33 @@ const DiscoverTab = () => {
 								<p className="s1 min-h-[40px] text-blueGray">
 									{a.description || t('discover.noDescription')}
 								</p>
-								{a.superwow && (
-									<span
-										className={cls(
-											's1 self-start border px-1',
-											a.superwow === 'requires'
-												? 'border-orange/40 text-orange'
-												: 'border-blueGray/40 text-blueGray'
+								{(a.superwow || a.relatedMods.length > 0) && (
+									<div className="flex flex-wrap gap-1">
+										{a.superwow && (
+											<span
+												className={cls(
+													's1 border px-1',
+													a.superwow === 'requires'
+														? 'border-orange/40 text-orange'
+														: 'border-blueGray/40 text-blueGray'
+												)}
+											>
+												{t(
+													a.superwow === 'requires'
+														? 'discover.superwowRequires'
+														: 'discover.superwowEnhanced'
+												)}
+											</span>
 										)}
-									>
-										{t(
-											a.superwow === 'requires'
-												? 'discover.superwowRequires'
-												: 'discover.superwowEnhanced'
-										)}
-									</span>
+										{a.relatedMods.map(mod => (
+											<span
+												key={mod}
+												className="s1 border border-blueGray/40 px-1 text-blueGray"
+											>
+												{t('discover.relatedMod', { mod })}
+											</span>
+										))}
+									</div>
 								)}
 								<div className="flex items-center gap-3">
 									{a.stars != null && (
