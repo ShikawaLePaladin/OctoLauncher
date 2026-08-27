@@ -78,9 +78,13 @@ const LaunchPanel = () => {
 			// or get corrupted by antivirus after we've already confirmed the
 			// process spawned — re-check a few seconds in so the antivirus
 			// modal can catch it instead of the player only ever seeing that
-			// mod's own cryptic native error dialog
+			// mod's own cryptic native error dialog. AntivirusModal's query is
+			// mounted with enabled:false (it's manually triggered), so
+			// invalidate() alone is a no-op — react-query only refetches
+			// "active" queries, and a query with no enabled observer never
+			// counts as active. fetch() runs and caches it unconditionally.
 			if (result.ok)
-				setTimeout(() => utils.general.antivirusBlocks.invalidate(), 5000);
+				setTimeout(() => utils.general.antivirusBlocks.fetch(), 5000);
 		}
 	});
 	const applyMods = api.mods.applyAll.useMutation();

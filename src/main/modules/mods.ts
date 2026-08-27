@@ -28,6 +28,7 @@ import Updater from './updater';
 import { addDll, removeDll, listDlls } from './dllsTxt';
 import { enumerateDisplays } from './displays';
 import { recommendDxvkVariant } from './vulkan';
+import { isValidPe } from './fileChecks';
 
 const MOD_DOWNLOAD_TIMEOUT_MS = 60_000;
 
@@ -697,7 +698,15 @@ class ModsClass extends Observable<ModsStatus> {
 				files.length > 0 &&
 				(
 					await Promise.all(
-						files.map(rel => fs.pathExists(path.join(clientDir, rel)))
+						files.map(async rel => {
+							const full = path.join(clientDir, rel);
+							if (!(await fs.pathExists(full))) return false;
+							// antivirus can leave a corrupted-but-present file
+							// behind instead of removing it (see
+							// fileChecks.ts) — treat that the same as missing,
+							// or repair silently never re-downloads it
+							return /\.(dll|exe)$/i.test(rel) ? isValidPe(full) : true;
+						})
 					)
 				).every(Boolean);
 			const wantInstalled = row.enabled;
