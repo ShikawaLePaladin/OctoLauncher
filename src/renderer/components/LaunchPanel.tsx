@@ -69,9 +69,20 @@ const LaunchPanel = () => {
 		onData: setModsStatus
 	});
 
+	const utils = api.useContext();
 	const verify = api.updater.verify.useMutation();
 	const update = api.updater.update.useMutation();
-	const start = api.launcher.start.useMutation();
+	const start = api.launcher.start.useMutation({
+		onSuccess: result => {
+			// a mod's DLL (VanillaFixes/SuperWoW/etc.) can still fail to load
+			// or get corrupted by antivirus after we've already confirmed the
+			// process spawned — re-check a few seconds in so the antivirus
+			// modal can catch it instead of the player only ever seeing that
+			// mod's own cryptic native error dialog
+			if (result.ok)
+				setTimeout(() => utils.general.antivirusBlocks.invalidate(), 5000);
+		}
+	});
 	const applyMods = api.mods.applyAll.useMutation();
 
 	const modRows = modsStatus?.mods ?? [];

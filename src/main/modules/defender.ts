@@ -158,6 +158,30 @@ const SENSITIVE_FILES: Partial<Record<string, ModId>> = {
 	'ClassicAPI.dll': 'classicApi'
 };
 
+// an antivirus that intervenes after the file is already written (rather
+// than blocking the write outright) can leave a truncated or replaced file
+// behind instead of removing it — invisible to a plain existsSync check, but
+// exactly what causes a mod's own DLL/exe to fail at load/injection time
+// with a cryptic error instead of the launcher ever knowing something's
+// wrong. Checking for the PE magic bytes is cheap and version-agnostic
+// (no hash to keep in sync with every mod update).
+const isValidPe = (filePath: string): boolean => {
+	let fd: number;
+	try {
+		fd = fs.openSync(filePath, 'r');
+	} catch {
+		return false;
+	}
+	try {
+		const buf = Buffer.alloc(2);
+		return fs.readSync(fd, buf, 0, 2, 0) === 2 && buf[0] === 0x4d && buf[1] === 0x5a;
+	} catch {
+		return false;
+	} finally {
+		fs.closeSync(fd);
+	}
+};
+
 export const detectAntivirusBlocks = async (): Promise<string[]> => {
 	if (os.platform() !== 'win32') return [];
 
@@ -185,7 +209,12 @@ export const detectAntivirusBlocks = async (): Promise<string[]> => {
 					? isDxvkEffectivelyEnabled()
 					: !!Preferences.data.mods?.[modId as ModId]?.enabled;
 			if (!enabled) continue;
-			if (!fs.existsSync(path.join(clientDir, name))) blocked.add(name);
+			const filePath = path.join(clientDir, name);
+			if (!fs.existsSync(filePath)) {
+				blocked.add(name);
+				continue;
+			}
+			if (/\.(dll|exe)$/i.test(name) && !isValidPe(filePath)) blocked.add(name);
 		}
 	}
 
