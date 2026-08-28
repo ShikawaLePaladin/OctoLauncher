@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -44,19 +46,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OctoLauncher-portable
-          path: dist/OctoLauncher.exe
+          path: distprod/OctoLauncher.exe
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: OctoLauncher-installer
-          path: dist/OctoLauncher_Installer.exe
+          path: distprod/OctoLauncher_Installer-*.exe
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/OctoLauncher.exe
-            dist/OctoLauncher_Installer.exe
-            dist/latest.yml
-            dist/OctoLauncher_Installer.exe.blockmap
+            distprod/OctoLauncher.exe
+            distprod/OctoLauncher_Installer-*.exe
+            distprod/latest.yml
+            distprod/OctoLauncher_Installer-*.exe.blockmap
