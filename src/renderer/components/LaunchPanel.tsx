@@ -82,9 +82,18 @@ const LaunchPanel = () => {
 			// mounted with enabled:false (it's manually triggered), so
 			// invalidate() alone is a no-op — react-query only refetches
 			// "active" queries, and a query with no enabled observer never
-			// counts as active. fetch() runs and caches it unconditionally.
+			// counts as active. fetch() runs unconditionally instead — but
+			// the app sets a global staleTime:Infinity default, under which
+			// fetch() only actually calls the query function once per session
+			// (every call after the first successful one is served from
+			// cache and never re-runs detectAntivirusBlocks()). staleTime:0
+			// overrides that for just this call so it's a real recheck every
+			// launch, not only the first one.
 			if (result.ok)
-				setTimeout(() => utils.general.antivirusBlocks.fetch(), 5000);
+				setTimeout(
+					() => utils.general.antivirusBlocks.fetch(undefined, { staleTime: 0 }),
+					5000
+				);
 		}
 	});
 	const applyMods = api.mods.applyAll.useMutation();

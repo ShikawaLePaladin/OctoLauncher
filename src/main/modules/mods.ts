@@ -693,22 +693,29 @@ class ModsClass extends Observable<ModsStatus> {
 			// and skipped #install(). Checking the actual target files is
 			// the one signal that's correct regardless of what set enabled.
 			const files = modTargetFiles(m);
-			const isInstalled =
-				!!clientDir &&
-				files.length > 0 &&
-				(
-					await Promise.all(
+			const presence = !clientDir
+				? []
+				: await Promise.all(
 						files.map(async rel => {
 							const full = path.join(clientDir, rel);
-							if (!(await fs.pathExists(full))) return false;
+							const exists = await fs.pathExists(full);
 							// antivirus can leave a corrupted-but-present file
 							// behind instead of removing it (see
-							// fileChecks.ts) — treat that the same as missing,
-							// or repair silently never re-downloads it
-							return /\.(dll|exe)$/i.test(rel) ? isValidPe(full) : true;
+							// fileChecks.ts) — a corrupted file must still
+							// count as "present" so a disabled mod's leftover
+							// gets cleaned up, but must not count as "valid"
+							// or repair would never re-download it
+							const valid =
+								exists && (/\.(dll|exe)$/i.test(rel) ? isValidPe(full) : true);
+							return { exists, valid };
 						})
-					)
-				).every(Boolean);
+				  );
+			// mirrors the original all-files-present check, just split by
+			// exists/valid — an uninstall should still run for any leftover
+			// (even corrupted) file, while an install should only be skipped
+			// when every file is both present and intact
+			const filesPresent = files.length > 0 && presence.every(p => p.exists);
+			const isInstalled = files.length > 0 && presence.every(p => p.valid);
 			const wantInstalled = row.enabled;
 			const updateAvailable =
 				isInstalled &&
@@ -718,7 +725,7 @@ class ModsClass extends Observable<ModsStatus> {
 			try {
 				if (wantInstalled && !isInstalled) {
 					await this.#install(m);
-				} else if (!wantInstalled && isInstalled) {
+				} else if (!wantInstalled && filesPresent) {
 					await this.#uninstall(m);
 				} else if (wantInstalled && updateAvailable && !opts.repairOnly) {
 					await this.#uninstall(m);
