@@ -59,7 +59,7 @@ const SelfUpdateBanner = () => {
 		<div
 			className={`relative z-10 flex items-center gap-3 rounded-md border ${tone} bg-black/60 px-4 py-2 text-sm`}
 		>
-			<span className="flex-grow break-all">{label}</span>
+			<span className="max-h-24 flex-grow overflow-y-auto break-all">{label}</span>
 			{status.state === 'ready' && (
 				<Button
 					primary

@@ -71,11 +71,18 @@ class SelfUpdaterClass extends Observable<SelfUpdaterStatus> {
 		});
 		autoUpdater.on('error', err => {
 			Logger.error('[selfUpdater] error', err);
-			this.status = {
-				state: 'error',
-				currentVersion,
-				message: err?.message ?? String(err)
-			};
+			// electron-updater embeds the full raw response body in the
+			// error message when the update feed doesn't return real YAML
+			// (e.g. a hosting provider's anti-bot challenge page instead of
+			// latest.yml) — seen live as a Cloudflare interstitial's entire
+			// HTML/CSS dumped into this string. SelfUpdateBanner renders
+			// this directly with no length limit, so an unbounded message
+			// here means an unbounded banner. The full text is still in the
+			// log line above for diagnosis; the UI only needs a short one.
+			const rawMessage = err?.message ?? String(err);
+			const message =
+				rawMessage.length > 200 ? rawMessage.slice(0, 200) + '…' : rawMessage;
+			this.status = { state: 'error', currentVersion, message };
 		});
 		autoUpdater.on('download-progress', p => {
 			Logger.info(`[selfUpdater] downloading ${Math.round(p.percent)}%`);
