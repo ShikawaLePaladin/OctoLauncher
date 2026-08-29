@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import Mods from '~main/modules/mods';
 import Preferences from '~main/modules/preferences';
-import { isGameRunning } from '~main/modules/updater';
+import Updater, { isGameRunning } from '~main/modules/updater';
 import { dxvkConfOwner, ensureDxvkConf } from '~main/modules/patcher';
 import { ModIdSchema } from '~common/mods';
 
@@ -59,6 +59,16 @@ export const modsRouter = createTRPCRouter({
 			if (await isGameRunning(exePath))
 				throw new Error('Please close WoW first before verifying files.');
 		}
+		// "Verify game files" previously only reconciled mods (nampower,
+		// vanillaFixes, dxvk) — the base client's own Data\*.MPQ archives
+		// went through the torrent updater's default existence+size check
+		// instead, which passes a same-size-but-corrupted file (disk error,
+		// interrupted write, AV tampering) without ever reading its content.
+		// Updater.update(true) requests aria2's real per-piece hash
+		// verification (checkIntegrity) and re-fetches anything that fails
+		// it — run it first so mods reconcile against an already-sound
+		// client, same ordering #torrentUpdate uses internally.
+		await Updater.update(true);
 		return Mods.applyAll({ repairOnly: true });
 	}),
 	observe: publicProcedure.subscription(() => Mods.observe())
