@@ -13,6 +13,7 @@ import {
 	DXVK_VARIANTS,
 	DXVK_DLL_SHA256,
 	LEGACY_DXVK_DLL_SHA256,
+	modTargetFiles,
 	type DxvkVariantId,
 	type ModEntry,
 	type ModId,
@@ -31,13 +32,6 @@ import { recommendDxvkVariant } from './vulkan';
 import { isValidPe } from './fileChecks';
 
 const MOD_DOWNLOAD_TIMEOUT_MS = 60_000;
-
-/** Files a mod installs on disk. */
-const modTargetFiles = (m: ModEntry): string[] => {
-	if (m.source.kind === 'directFile') return [m.source.assetName];
-	if (m.source.kind === 'archive') return Object.values(m.source.extractMap);
-	return [];
-};
 
 // client-shipped DLLs that aren't injectable mods; not counted as custom mods
 const RESERVED_DLLS = new Set([

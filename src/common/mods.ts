@@ -233,6 +233,13 @@ export const MODS: ModEntry[] = [
 	}
 ];
 
+/** Files a mod installs on disk. */
+export const modTargetFiles = (m: ModEntry): string[] => {
+	if (m.source.kind === 'directFile') return [m.source.assetName];
+	if (m.source.kind === 'archive') return Object.values(m.source.extractMap);
+	return [];
+};
+
 export const getMod = (id: ModId): ModEntry | undefined =>
 	MODS.find(m => m.id === id);
 

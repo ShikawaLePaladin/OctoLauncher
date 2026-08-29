@@ -6,6 +6,8 @@ import { app } from 'electron';
 import fs from 'fs-extra';
 import Logger from 'electron-log/main';
 
+import { MODS, modTargetFiles } from '~common/mods';
+
 import { mapPort, type PortMapping } from './upnp';
 
 const TORRENT_NAME = 'client';
@@ -331,11 +333,38 @@ export const pruneStaleArchives = async (
 	}
 };
 
-// files the torrent ships but a mod toggle owns; the sync must not re-add
-// them or count their absence as an incomplete tree
-const LAUNCHER_OWNED_FILES = new Set(['d3d9.dll']);
+// files the base torrent bundles a snapshot of, but that a different
+// launcher subsystem owns and keeps current on its own: every active mod's
+// files (nampower, vanillaFixes, dxvk's d3d9.dll, ...), realmlist.wtf
+// (rewritten to the real server address by healRealmlist — the torrent
+// ships whatever placeholder shipped with the base client), and
+// Data\patch-5.mpq (kept current by the sha256-verified content-patch
+// sidecar in updater.ts, independently of the torrent's own baked-in copy).
+// Once any of these has been updated past the size baked into the torrent
+// at build time — which is the entire point of updating them independently
+// — the sync and the owning subsystem fight over the file forever: the
+// torrent "fixes" it back to its stale copy, the owner corrects it back,
+// and torrentTreeIntact() never agrees the tree is complete. Exactly the
+// "Update available! Download incomplete." loop reported on realmlist.wtf
+// and patch-5.mpq — confirmed live: patch-5.mpq sitting at the sidecar's
+// correct 53378202 bytes while the torrent expects its own stale 54289432,
+// and realmlist.wtf correctly holding the real server address instead of
+// the torrent's 27-byte placeholder.
+const LAUNCHER_OWNED_FILES = new Set(
+	['d3d9.dll', 'realmlist.wtf']
+		.concat(
+			MODS.filter(m => !m.disabled).flatMap(m => [
+				m.registerInDllsTxt,
+				...modTargetFiles(m)
+			])
+		)
+		.filter((f): f is string => !!f)
+		.map(f => f.toLowerCase())
+);
+const LAUNCHER_OWNED_PATHS = new Set(['data/patch-5.mpq']);
 const isLauncherOwned = (parts: string[]) =>
-	parts.length === 1 && LAUNCHER_OWNED_FILES.has(parts[0].toLowerCase());
+	(parts.length === 1 && LAUNCHER_OWNED_FILES.has(parts[0].toLowerCase())) ||
+	LAUNCHER_OWNED_PATHS.has(parts.join('/').toLowerCase());
 
 export const torrentDownloadSelection = async (
 	clientDir: string,
