@@ -16,7 +16,12 @@ import { enumerateDisplays } from '~main/modules/displays';
 
 const Servers = {
 	live: {
-		realmList: 'octowow.st',
+		// the realm itself moved to this subdomain at some point — the bare
+		// domain still serves the website (HTTP 200) but no longer answers
+		// on the game port at all (confirmed: TCP to octowow.st:3724 fails,
+		// play.octowow.st:3724 succeeds), so writing the old value into
+		// realmlist.wtf silently produces a client that can never connect
+		realmList: 'play.octowow.st',
 		patchList: 'octowow.st',
 		realmName: 'OctoWoW'
 	},
